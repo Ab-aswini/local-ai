@@ -49,7 +49,8 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.1"
+        // 1.5.5 is required for Kotlin 1.9.20 compatibility
+        kotlinCompilerExtensionVersion = "1.5.5"
     }
     packaging {
         resources {
@@ -72,7 +73,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     
     // Compose User Interface ("Senior Designer" Theme)
-    val composeBom = platform("androidx.compose:compose-bom:2023.08.00")
+    // BOM 2023.10.01 ships Compose Compiler 1.5.5 — aligned with Kotlin 1.9.20
+    val composeBom = platform("androidx.compose:compose-bom:2023.10.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     

@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "D:\\Local LLM- android\\HybridAIAssistant\\app\\src\\main\\cpp\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\aswin\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "D:\\Local LLM- android\\HybridAIAssistant\\app\\.cxx\\Debug\\5g4yn1e1\\x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\aswin\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "D:\\Local LLM- android\\HybridAIAssistant\\app\\.cxx\\Debug\\5g4yn1e1\\x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "hybridai-llama::@6890427a1f51a3e7e1df": {
+      "artifactName": "hybridai-llama",
+      "abi": "x86_64",
+      "output": "D:\\Local LLM- android\\HybridAIAssistant\\app\\build\\intermediates\\cxx\\Debug\\5g4yn1e1\\obj\\x86_64\\libhybridai-llama.so",
+      "runtimeFiles": []
+    }
+  }
+}
