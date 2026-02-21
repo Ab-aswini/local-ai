@@ -16,7 +16,6 @@ app/build/
 
 # Gradle cache
 .gradle/
-gradle/wrapper/gradle-wrapper.jar
 
 # Local config files (not for version control)
 local.properties
