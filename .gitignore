@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+*.class
+*.pyc
+
+# Android
+*.apk
+*.ap_
+*.dex
+*.aar
+*.aab
+
+# Build outputs
+/build
+app/build/
+/*/build/
+
+# Gradle cache
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# Local config files (not for version control)
+local.properties
+*.iml
+.idea/
+
+# Native build
+*.o
+*.so
+
+# macOS junk
+.DS_Store
+Thumbs.db
