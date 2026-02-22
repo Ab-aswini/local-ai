@@ -141,6 +141,35 @@ fun ChatScreen(
             item { Spacer(modifier = Modifier.height(8.dp)) }
         }
 
+        // ── Quick Action Chips (shown when input is empty) ────────────────
+        if (inputText.isEmpty() && !isLoading) {
+            val quickActions = listOf("Summarize this", "Explain step by step",
+                "Translate to English", "Fix my code", "Tell me a joke")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(TrueBlack)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                quickActions.forEach { action ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { inputText = action },
+                        label = { Text(action, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = SurfaceGray,
+                            labelColor = SecondaryAccent
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true, selected = false,
+                            borderColor = SurfaceGray
+                        )
+                    )
+                }
+            }
+        }
+
         // ── Input Row ────────────────────────────────────────────────────
         Row(
             modifier = Modifier
@@ -177,7 +206,6 @@ fun ChatScreen(
 
             // 🎙️ Voice input — fills text field; user can edit before sending
             VoiceInputButton(onResult = { inputText = it })
-            )
 
             // Stop button while generating / Send button otherwise
             if (isLoading) {
