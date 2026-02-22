@@ -47,8 +47,12 @@ class ModelDownloadManager(private val context: Context) {
             setDescription("Local AI model — ${model.sizeLabel}")
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, model.filename)
+            // Force binary download — prevents HuggingFace redirecting to HTML login page
+            setMimeType("application/octet-stream")
+            addRequestHeader("User-Agent", "Mozilla/5.0 Android")
             setAllowedOverMetered(true)
             setAllowedOverRoaming(false)
+            setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
         }
 
         val downloadId = downloadManager.enqueue(request)
@@ -78,9 +82,25 @@ class ModelDownloadManager(private val context: Context) {
                             updateProgress(model.id, progress.coerceIn(0.01f, 0.99f))
                         }
                         DownloadManager.STATUS_SUCCESSFUL -> {
-                            updateProgress(model.id, 1.0f)
+                            // Validate it's actually a GGUF file (not HTML error page / ZIP)
+                            val file = getModelFile(model.filename)
+                            val isGguf = try {
+                                file.inputStream().use { s ->
+                                    val bytes = ByteArray(4)
+                                    s.read(bytes)
+                                    String(bytes) == "GGUF"
+                                }
+                            } catch (e: Exception) { false }
+
+                            if (isGguf) {
+                                updateProgress(model.id, 1.0f)
+                                Log.i(TAG, "✅ Valid GGUF downloaded: ${model.name} (${file.length() / 1_000_000}MB)")
+                            } else {
+                                file.delete() // Remove the bad file
+                                updateProgress(model.id, -1f)
+                                Log.e(TAG, "❌ Downloaded file is NOT a GGUF (got HTML or ZIP). Deleted. Check URL.")
+                            }
                             idsToRemove.add(downloadId)
-                            Log.d(TAG, "Download complete: ${model.name}")
                         }
                         DownloadManager.STATUS_FAILED -> {
                             updateProgress(model.id, -1f)

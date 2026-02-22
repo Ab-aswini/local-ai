@@ -2,13 +2,14 @@ package com.example.hybridai.local
 
 import android.content.Context
 import android.util.Log
-import com.example.hybridai.core.InferenceStrategy
-import com.example.hybridai.core.SystemHealthMonitor
+import com.example.hybridai.data.AppPreferences
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 
 /**
- * Abstraction layer coordinating between different local engines.
+ * Coordinates local inference engines.
+ * Loads the user's selected GGUF model from DataStore preferences automatically.
  */
 class LocalInferenceManager(private val context: Context) {
 
@@ -16,42 +17,50 @@ class LocalInferenceManager(private val context: Context) {
         private const val TAG = "LocalInferenceManager"
     }
 
-    private val healthMonitor = SystemHealthMonitor(context)
-    private var activeEngine: InferenceEngine? = null
+    private val prefs = AppPreferences(context)
+    private val llamaEngine = LlamaCppEngine(context)
+    private var initialized = false
 
-    // For demonstration, we assume paths. In reality, these are downloaded or shipped in assets.
-    private val llamaGgufPath = "/data/local/tmp/llama-3.2-1b-instruct-q4_k_m.gguf"
-    private val gemmaTaskPath = "/data/local/tmp/gemma-3-1b.task"
-
+    /**
+     * Called on app start. Reads the saved model path from DataStore and loads it.
+     * If no model is selected yet, engine is ready but will show guidance when queried.
+     */
     suspend fun initialize() {
-        val strategy = healthMonitor.determineOptimalStrategy()
-        
-        // Choose engine based on some configuration or strategy. 
-        // Here we demonstrate preferring LlamaCpp for memory mapping on low ram.
-        activeEngine = if (strategy == InferenceStrategy.LOCAL_QUANTIZED_4BIT) {
-            Log.i(TAG, "Initializing LlamaCppEngine (.gguf) for low RAM footprint.")
-            LlamaCppEngine().apply {
-                loadModel(llamaGgufPath, useMmap = true)
+        val modelPath = prefs.selectedModelPath.first()
+        val modelName = prefs.selectedModelName.first()
+
+        if (modelPath.isNotBlank()) {
+            Log.i(TAG, "Loading saved model: $modelName from $modelPath")
+            val loaded = llamaEngine.loadModel(modelPath, useMmap = true)
+            if (loaded) {
+                Log.i(TAG, "✅ Model loaded successfully: $modelName")
+            } else {
+                Log.w(TAG, "⚠️ Model file invalid or missing: $modelPath — clearing saved path")
+                prefs.clearModel()
             }
         } else {
-            Log.i(TAG, "Initializing MediaPipeEngine (.task) for optimized hardware paths.")
-            MediaPipeEngine(context).apply {
-                loadModel(gemmaTaskPath, useMmap = false)
-            }
+            Log.i(TAG, "No local model selected yet. User can download one in Settings.")
         }
+        initialized = true
+    }
+
+    /**
+     * Called after a model is downloaded and activated — reloads it immediately.
+     */
+    suspend fun reloadModel() {
+        llamaEngine.unload()
+        initialize()
     }
 
     fun generateResponse(prompt: String): Flow<String> {
-        val engine = activeEngine
-        if (engine == null) {
-            Log.e(TAG, "LocalInferenceManager is not initialized!")
-            return flow { emit("Error: Local Engine not initialized.") }
+        if (!initialized) {
+            return flow { emit("Local engine starting up, please try again in a moment.") }
         }
-        return engine.generateResponse(prompt)
+        return llamaEngine.generateResponse(prompt)
     }
 
     fun shutdown() {
-        activeEngine?.unload()
-        activeEngine = null
+        llamaEngine.unload()
+        initialized = false
     }
 }
