@@ -29,6 +29,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val appTheme: StateFlow<String> = prefs.appTheme
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "amoled")
 
+    val selectedPersonaId: StateFlow<String> = prefs.selectedPersonaId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "assistant")
+
     // Download progress map
     val downloadProgress: StateFlow<Map<String, Float>> = downloadManager.downloadProgress
 
@@ -88,6 +91,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setTheme(theme: String) {
         viewModelScope.launch { prefs.saveTheme(theme) }
+    }
+
+    fun savePersona(personaId: String) {
+        viewModelScope.launch { prefs.savePersona(personaId) }
     }
 
     fun isDownloaded(model: ModelInfo): Boolean {
