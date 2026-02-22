@@ -93,6 +93,18 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
+    // Navigation Compose — for Chat ↔ Settings navigation
+    implementation("androidx.navigation:navigation-compose:2.7.6")
+
+    // DataStore Preferences — persistent settings (API key, theme, model path)
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // ViewModel for Compose
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+
+    // Icons extended (for Settings, Download icons)
+    implementation("androidx.compose.material:material-icons-extended:1.5.4")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

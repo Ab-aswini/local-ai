@@ -34,7 +34,8 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isLoading: Boolean,
     onSendMessage: (String) -> Unit,
-    onClearChat: () -> Unit
+    onClearChat: () -> Unit,
+    onOpenSettings: () -> Unit = {}
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -76,8 +77,13 @@ fun ChatScreen(
                     fontSize = 12.sp
                 )
             }
-            TextButton(onClick = onClearChat) {
-                Text("Clear", color = SecondaryAccent, fontSize = 13.sp)
+            Row {
+                IconButton(onClick = onClearChat) {
+                    Icon(Icons.Default.Delete, contentDescription = "Clear chat", tint = SecondaryAccent, modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Default.Settings, contentDescription = "Settings", tint = PrimaryAccent, modifier = Modifier.size(20.dp))
+                }
             }
         }
 

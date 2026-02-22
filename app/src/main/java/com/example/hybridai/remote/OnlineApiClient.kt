@@ -1,8 +1,10 @@
 package com.example.hybridai.remote
 
 import android.util.Log
+import com.example.hybridai.data.AppPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -12,57 +14,42 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Real Gemini API client.
- * Connects to Google's Gemini 1.5 Flash (free tier) for complex queries.
- *
- * HOW TO GET YOUR API KEY (free):
- * 1. Go to https://aistudio.google.com/app/apikey
- * 2. Click "Create API Key"
- * 3. Paste the key below as the value of GEMINI_API_KEY
+ * Gemini 1.5 Flash API client.
+ * Reads the API key from AppPreferences (DataStore) at call time —
+ * so users can update their key in Settings without restarting the app.
  */
-class OnlineApiClient {
+class OnlineApiClient(private val prefs: AppPreferences) {
 
     companion object {
         private const val TAG = "OnlineApiClient"
-
-        // ⬇️ PASTE YOUR FREE GEMINI API KEY HERE ⬇️
-        private const val GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
-
         private const val MODEL = "gemini-1.5-flash"
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent"
     }
 
-    /**
-     * Sends prompt to Gemini API and streams back the response.
-     * Falls back to an error message gracefully if no API key is set.
-     */
     fun generateResponse(prompt: String): Flow<String> = flow {
-        // Guard: if API key not configured yet, emit a helpful message
-        if (GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE") {
-            emit("⚠️ No API key set. Go to aistudio.google.com → Get API Key → paste it in OnlineApiClient.kt")
+        val apiKey = prefs.geminiApiKey.first()
+
+        if (apiKey.isBlank()) {
+            emit("☁️ No API key set. Go to Settings → Cloud AI tab → paste your free Gemini key.")
             return@flow
         }
 
-        Log.d(TAG, "Sending to Gemini API: ${prompt.take(50)}...")
+        Log.d(TAG, "Sending to Gemini: ${prompt.take(50)}...")
 
         try {
-            val response = withContext(Dispatchers.IO) {
-                callGeminiApi(prompt)
-            }
-            // Emit the response word by word for a streaming feel
-            val words = response.split(" ")
-            for (word in words) {
+            val response = withContext(Dispatchers.IO) { callGeminiApi(prompt, apiKey) }
+            for (word in response.split(" ")) {
                 emit("$word ")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Gemini API error: ${e.message}", e)
-            emit("Error connecting to Gemini: ${e.message}")
+            Log.e(TAG, "Gemini error: ${e.message}", e)
+            emit("⚠️ Error connecting to Gemini: ${e.message}")
         }
     }
 
-    private fun callGeminiApi(prompt: String): String {
-        val url = URL("$BASE_URL?key=$GEMINI_API_KEY")
+    private fun callGeminiApi(prompt: String, apiKey: String): String {
+        val url = URL("$BASE_URL?key=$apiKey")
         val connection = url.openConnection() as HttpURLConnection
 
         return try {
@@ -74,7 +61,6 @@ class OnlineApiClient {
                 readTimeout = 30_000
             }
 
-            // Build the Gemini API request body
             val systemInstruction = "You are a helpful, concise AI assistant. Keep responses under 3 sentences when possible."
             val requestBody = JSONObject().apply {
                 put("system_instruction", JSONObject().apply {
@@ -95,37 +81,33 @@ class OnlineApiClient {
                 })
             }
 
-            // Send the request
-            OutputStreamWriter(connection.outputStream).use { writer ->
-                writer.write(requestBody.toString())
-                writer.flush()
-            }
+            OutputStreamWriter(connection.outputStream).use { it.write(requestBody.toString()); it.flush() }
 
-            val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                val responseText = connection.inputStream.bufferedReader().readText()
-                parseGeminiResponse(responseText)
+            val code = connection.responseCode
+            if (code == HttpURLConnection.HTTP_OK) {
+                parseGeminiResponse(connection.inputStream.bufferedReader().readText())
             } else {
-                val errorText = connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
-                Log.e(TAG, "HTTP $responseCode: $errorText")
-                "API Error ($responseCode). Check your API key."
+                val err = connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
+                Log.e(TAG, "HTTP $code: $err")
+                "API Error ($code) — check your API key in Settings."
             }
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun parseGeminiResponse(jsonString: String): String {
+    private fun parseGeminiResponse(json: String): String {
         return try {
-            val root = JSONObject(jsonString)
-            val candidates = root.getJSONArray("candidates")
-            val firstCandidate = candidates.getJSONObject(0)
-            val content = firstCandidate.getJSONObject("content")
-            val parts = content.getJSONArray("parts")
-            parts.getJSONObject(0).getString("text")
+            JSONObject(json)
+                .getJSONArray("candidates")
+                .getJSONObject(0)
+                .getJSONObject("content")
+                .getJSONArray("parts")
+                .getJSONObject(0)
+                .getString("text")
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing Gemini response: ${e.message}")
-            "Could not parse response from Gemini."
+            Log.e(TAG, "Parse error: ${e.message}")
+            "Could not parse Gemini response."
         }
     }
 }
