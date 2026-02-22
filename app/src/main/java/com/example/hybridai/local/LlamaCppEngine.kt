@@ -28,12 +28,25 @@ class LlamaCppEngine : InferenceEngine {
             emit("Error: Model not loaded.")
             return@flow
         }
-        
-        // Simulated token streaming from JNI
-        val mockResponseTokens = listOf("This ", "is ", "running ", "locally ", "via ", "llama.cpp ", "using ", "mmap.")
-        for (token in mockResponseTokens) {
-            delay(50) // Simulate inference time
-            emit(token)
+
+        // Context-aware mock until real llama.cpp GGUF is integrated
+        val localResponse = when {
+            prompt.contains("hello", ignoreCase = true) || prompt.contains("hi", ignoreCase = true) ->
+                "Hello! I'm running locally on your device using llama.cpp with mmap for memory efficiency."
+            prompt.contains("what", ignoreCase = true) && prompt.contains("you", ignoreCase = true) ->
+                "I'm a local AI assistant powered by llama.cpp. For complex questions, I'll escalate to the cloud."
+            prompt.contains("how", ignoreCase = true) ->
+                "That's a great question! Once integrated with a GGUF model, I'll answer using on-device inference."
+            prompt.length < 30 ->
+                "Running locally on your device. 🟢 No internet needed for simple queries!"
+            else ->
+                "Processing locally via llama.cpp. This response is a stub — awaiting GGUF model integration."
+        }
+
+        // Simulate token streaming
+        for (word in localResponse.split(" ")) {
+            delay(40)
+            emit("$word ")
         }
     }
 
