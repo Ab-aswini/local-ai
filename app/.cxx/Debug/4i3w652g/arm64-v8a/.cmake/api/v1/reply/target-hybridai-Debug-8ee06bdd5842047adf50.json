@@ -34,19 +34,19 @@
 			{
 				"command" : 1,
 				"file" : 0,
-				"line" : 44,
+				"line" : 47,
 				"parent" : 0
 			},
 			{
 				"command" : 2,
 				"file" : 0,
-				"line" : 40,
+				"line" : 43,
 				"parent" : 0
 			},
 			{
 				"command" : 3,
 				"file" : 0,
-				"line" : 34,
+				"line" : 37,
 				"parent" : 0
 			},
 			{
@@ -135,11 +135,15 @@
 					"path" : "D:/Local LLM- android/HybridAIAssistant/app/src/main/cpp/llama.cpp/include"
 				},
 				{
-					"backtrace" : 3,
+					"backtrace" : 5,
+					"path" : "D:/Local LLM- android/HybridAIAssistant/app/src/main/cpp/llama.cpp/vendor"
+				},
+				{
+					"backtrace" : 5,
 					"path" : "D:/Local LLM- android/HybridAIAssistant/app/src/main/cpp/llama.cpp/src/../include"
 				},
 				{
-					"backtrace" : 3,
+					"backtrace" : 5,
 					"path" : "D:/Local LLM- android/HybridAIAssistant/app/src/main/cpp/llama.cpp/ggml/src/../include"
 				}
 			],
@@ -159,7 +163,7 @@
 	[
 		{
 			"backtrace" : 3,
-			"id" : "ggml-cpu::@d3a65483471855fe1d21"
+			"id" : "ggml::@d3a65483471855fe1d21"
 		},
 		{
 			"backtrace" : 3,
@@ -167,7 +171,7 @@
 		},
 		{
 			"backtrace" : 3,
-			"id" : "ggml::@d3a65483471855fe1d21"
+			"id" : "ggml-cpu::@d3a65483471855fe1d21"
 		},
 		{
 			"backtrace" : 3,

@@ -201,7 +201,12 @@ fun ChatScreen(
                             containerColor = SurfaceGray,
                             labelColor = SecondaryAccent
                         ),
-                        border = BorderStroke(0.dp, SurfaceGray)
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor       = SurfaceGray,
+                            selectedBorderColor = SurfaceGray,
+                            borderWidth       = 0.dp,
+                            selectedBorderWidth = 0.dp
+                        )
                     )
                 }
             }

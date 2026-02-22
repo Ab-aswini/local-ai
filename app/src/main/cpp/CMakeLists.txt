@@ -41,7 +41,11 @@ target_compile_options(hybridai PUBLIC
 )
 
 target_link_libraries(hybridai
-    android log llama common
+    android log llama
+    # NOTE: 'common' is NOT linked here — the common static lib depends on
+    # cpp-httplib (HTTP networking) which has no NDK equivalent and causes
+    # "unable to find library -lcommon". Headers are still resolved via
+    # target_include_directories above.
 )
 
 target_link_options(hybridai PRIVATE

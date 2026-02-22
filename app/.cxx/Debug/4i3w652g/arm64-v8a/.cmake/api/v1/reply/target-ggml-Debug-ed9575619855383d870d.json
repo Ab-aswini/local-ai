@@ -254,12 +254,12 @@
 	"dependencies" : 
 	[
 		{
-			"backtrace" : 6,
-			"id" : "ggml-cpu::@d3a65483471855fe1d21"
-		},
-		{
 			"backtrace" : 7,
 			"id" : "ggml-base::@d3a65483471855fe1d21"
+		},
+		{
+			"backtrace" : 6,
+			"id" : "ggml-cpu::@d3a65483471855fe1d21"
 		}
 	],
 	"id" : "ggml::@d3a65483471855fe1d21",

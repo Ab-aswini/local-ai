@@ -368,7 +368,7 @@
 	[
 		{
 			"backtrace" : 6,
-			"id" : "ggml-cpu::@d3a65483471855fe1d21"
+			"id" : "ggml::@d3a65483471855fe1d21"
 		},
 		{
 			"backtrace" : 6,
@@ -376,7 +376,7 @@
 		},
 		{
 			"backtrace" : 6,
-			"id" : "ggml::@d3a65483471855fe1d21"
+			"id" : "ggml-cpu::@d3a65483471855fe1d21"
 		}
 	],
 	"id" : "llama::@32fb59a8474f4dfc8d79",
