@@ -1,155 +1,96 @@
 # 🤖 Local AI — Hybrid Android AI Assistant
 
-> A premium Android AI assistant that runs locally on your device using `llama.cpp` and automatically switches to cloud AI (Gemini) for complex tasks. Built for low-end devices (~4GB RAM, ~$100 phones).
+> A premium, privacy-first Android AI assistant that runs models natively on your device using `llama.cpp` for ultimate privacy, while automatically switching to cloud AI (Gemini 1.5 Flash) for complex logic and coding tasks. Built for low-end devices (~4GB RAM) with OOM (Out-of-Memory) safety guards.
+
+![Screenshot placeholders for Onboarding, Chat, and Settings]
 
 ---
 
-## 📱 What the App Does Right Now
+## 📱 Features & Capabilities
 
-- **Chat Interface** — A dark, premium chat UI built with Jetpack Compose
-- **Smart Routing** — Automatically decides whether to answer locally or use the cloud
-- **Local Engine** — Uses `llama.cpp` with `mmap` for memory-efficient on-device AI
-- **Cloud Engine** — Connects to Google Gemini 1.5 Flash API for complex questions
-- **Visual Indicators** — 🟢 Green dot = running locally, 🔵 Blue dot = using cloud
-
----
-
-## 🗺️ Project Roadmap
-
-### ✅ Phase 1 — Foundation (DONE)
-- [x] Premium dark UI with Jetpack Compose
-- [x] `SystemHealthMonitor` — detects device RAM and picks the best inference strategy
-- [x] `TaskOrchestrator` — routes simple queries locally, complex queries to cloud
-- [x] `LlamaCppEngine` — local inference layer (stub, awaiting GGUF model)
-- [x] `MediaPipeEngine` — Google's hardware-accelerated alternative (stub)
-- [x] `OnlineApiClient` — real Gemini API integration
-- [x] JNI bridge (`native-lib.cpp`) — C++ layer for llama.cpp
-- [x] NDK + CMake build configuration
-- [x] App builds and installs on Android phone ✅
-
-### 🔄 Phase 2 — Real AI (IN PROGRESS)
-- [ ] Add your **Gemini API key** to activate cloud responses
-- [ ] Integrate real **llama.cpp source files** into `app/src/main/cpp/`
-- [ ] Download a **GGUF model** (Llama 3.2 1B, ~800MB) and push to device
-- [ ] Uncomment and test the real JNI calls in `LlamaCppEngine.kt`
-
-### 🔮 Phase 3 — Polish
-- [ ] App icon and splash screen
-- [ ] Settings screen (API key input, model selection)
-- [ ] Conversation history (persistent chat)
-- [ ] Typing animation (…) while waiting for response
-- [ ] Export / share chat
-- [ ] Offline fallback message when no internet and no model loaded
+- **Hybrid Intelligence Router** — Smart `TaskOrchestrator` automatically routes simple/private queries to the offline local engine and complex/analytical queries to the cloud.
+- **Native Local Interference** — Directly integrates modern `llama.cpp` using a custom JNI bridge. Supports high-performance memory-mapped (mmap) loading of GGUF models.
+- **OOM Safety System** — The `LlamaCppEngine` includes an active RAM constraint monitor (requires Model Size + 300MB buffer available). Protects low-end devices from crashing during model load.
+- **Dynamic Threading** — Automatically adapts CPU thread usage based on available cores (clamped between 2 to 6 threads) for battery-efficient token generation.
+- **Premium Jetpack Compose UI**
+    - **Markdown Rendering:** Full support for code blocks, inline code, bold, italic, and bullet points.
+    - **Haptic Feedback:** Physical confirmation on send and keyboard submit.
+    - **Adaptive Floating Action Button:** Scroll-to-bottom FAB that disappears when at the newest message.
+    - **Empty State & Onboarding:** Animated onboarding flow with interactive dots and a pulsing empty-state view.
+- **On-Device Persona System** — Switch between "Helpful Assistant", "Code Wizard", and "Creative Writer". System prompts are injected locally before model processing.
+- **DataStore Preferences** — Securely encrypted API key storage and persistent onboarding/persona states.
 
 ---
 
 ## 🏗️ Architecture
 
-```
-Your Message
-      │
-      ▼
-┌─────────────────────┐
-│   TaskOrchestrator  │  ← Analyzes complexity
-│  (Hybrid Router)    │
-└──────────┬──────────┘
-           │
-    ┌──────┴───────┐
-    │              │
-    ▼              ▼
- Simple         Complex
-    │              │
-    ▼              ▼
-┌────────┐   ┌──────────────┐
-│ Local  │   │  Gemini API  │
-│Engine  │   │  (Cloud)     │
-│llama.  │   │              │
-│cpp/    │   │ Free tier ✅ │
-│mmap    │   │              │
-└────────┘   └──────────────┘
-    │              │
-    └──────┬───────┘
-           ▼
-      Chat Screen
+```mermaid
+flowchart TD
+    User([User Message]) --> Orchestrator{TaskOrchestrator\nHybrid Router}
+    
+    Orchestrator -->|Simple / < 50 chars| Local[LlamaCppEngine\nLocal GGUF via JNI]
+    Orchestrator -->|Complex / Code / > 100 chars| Cloud[OnlineApiClient\nGemini 1.5 Flash]
+    
+    Local --> MarkdownUI[Jetpack Compose\nMarkdown UI]
+    Cloud --> MarkdownUI
 ```
 
-### Key Files
+### Key Modules
 
-| File | Purpose |
+| Component | Responsibility |
 |------|---------|
-| `core/SystemHealthMonitor.kt` | Detects device RAM, picks inference strategy |
-| `core/TaskOrchestrator.kt` | Routes queries to local or cloud engine |
-| `local/LlamaCppEngine.kt` | Runs GGUF models via llama.cpp JNI |
-| `local/MediaPipeEngine.kt` | Google MediaPipe alternative engine |
-| `remote/OnlineApiClient.kt` | Gemini 1.5 Flash API client |
-| `ui/chat/ChatScreen.kt` | The main chat screen UI |
-| `cpp/native-lib.cpp` | C++ JNI bridge to llama.cpp |
-| `cpp/CMakeLists.txt` | Native build configuration |
+| `SystemHealthMonitor.kt` | RAM telemetry, OOM guard rails, and context size clamping. |
+| `TaskOrchestrator.kt` | Rules-based query router (Local vs. Cloud). |
+| `LlamaCppEngine.kt` | JNI interface. Handles tokenization, sampling, and UTF-8 validation. |
+| `OnlineApiClient.kt` | Retrofit-based Gemini API integration. |
+| `LLMInference.cpp` | Modern `llama.cpp` C++ backend wrapper (no HTTP deps, raw `llama.h` API). |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start & Installation
 
-### Step 1 — Clone the repo
+### 1. Build Requirements
+- **Android Studio** Ladybug (or newer)
+- **NDK** (Side-by-side) installed via SDK Manager
+- **CMake** installed via SDK Manager
+
+### 2. Setup the Project
 ```bash
 git clone https://github.com/Ab-aswini/local-ai.git
 ```
+Open the `local-ai` folder in Android Studio and allow Gradle to sync.
 
-### Step 2 — Open in Android Studio
-- File → Open → select the `local-ai` folder (NOT the `app` subfolder)
-- Wait for Gradle sync to complete (~2 min)
+### 3. Add a Local GGUF Model (Offline AI)
+1. Download a compatible GGUF model (e.g., Llama 3.2 1B Instruct Q4_K_M).
+2. Place the model on your Android device in the `Downloads` or `Documents` folder.
+3. In the App's **Settings > 🗄️ Local Models**, enter the exact absolute path to the model file.
 
-### Step 3 — Run the app (works immediately with mock AI)
-- Connect your Android phone via USB
-- Enable USB Debugging + **Install via USB** in Developer Options
-- Press the ▶️ Run button in Android Studio
+### 4. Activate Cloud Fallback (Online AI)
+1. Get a **free Gemini API key** at [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Open the App's **Settings > ☁️ Cloud Connect**
+3. Paste your API key and tap Save.
 
-### Step 4 — Activate real AI (optional but recommended)
-1. Get a **free Gemini API key** at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-2. Open `app/src/main/java/com/example/hybridai/remote/OnlineApiClient.kt`
-3. Replace `YOUR_GEMINI_API_KEY_HERE` with your key
-4. Rebuild and run
-
----
-
-## 🧠 How the Routing Works
-
-The `TaskOrchestrator` classifies every message as **SIMPLE** or **COMPLEX**:
-
-| Condition | Classification | Goes to |
-|-----------|---------------|---------|
-| Short message (< 50 chars) | SIMPLE | Local Engine |
-| Contains: code, analyze, explain, write | COMPLEX | Gemini Cloud |
-| Long message (> 100 chars) | COMPLEX | Gemini Cloud |
-| Everything else | SIMPLE | Local Engine |
-
-### RAM-Based Strategy (SystemHealthMonitor)
-
-| Device RAM | Strategy |
-|-----------|---------|
-| < 6GB | `LOCAL_QUANTIZED_4BIT` — uses 4-bit GGUF model + mmap |
-| 6–12GB | `LOCAL_QUANTIZED_4BIT` — balanced mode |
-| > 12GB | `LOCAL_HIGH_PRECISION` — full precision model |
+### 5. Build and Run
+Press **Shift+F10** in Android Studio to build the C++ libraries and deploy the APK to your device.
 
 ---
 
-## 📦 Tech Stack
+## �️ Tech Stack & Build Details
 
-| Layer | Technology |
-|-------|-----------|
-| UI | Jetpack Compose + Material 3 |
-| Language | Kotlin + Coroutines/Flow |
-| Local AI | llama.cpp (C++ via JNI) |
-| Cloud AI | Google Gemini 1.5 Flash API |
-| Build | Gradle + CMake + NDK |
-| Min Android | API 26 (Android 8.0) |
+- **UI:** Jetpack Compose (Material 3)
+- **Language:** Kotlin + C++17 (JNI)
+- **Concurrency:** Kotlin Coroutines (`viewModelScope`, `Dispatchers.IO`)
+- **Persistence:** `androidx.datastore:datastore-preferences`
+- **Native AI:** `llama.cpp` (compiled from source via CMake)
+- **Network:** Retrofit 2 + Moshi
+- **Security:** R8/ProGuard obfuscation enabled for Native libraries.
 
 ---
 
 ## 🤝 Contributing
 
-This is a personal learning project. Feel free to fork and experiment!
+This project is actively maintained. PRs adding support for Vulkan backend or expanded RAG (Retrieval-Augmented Generation) document parsing are welcome!
 
 ---
 
-*Built with ❤️ for low-end devices that deserve AI too.*
+*Built with ❤️ for devices that deserve AI autonomy.*
