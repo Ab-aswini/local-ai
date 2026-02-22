@@ -26,11 +26,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.hybridai.ui.theme.*
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 
 // ── Data models ────────────────────────────────────────────────────────────
 
 enum class MessageRole { USER, ASSISTANT_LOCAL, ASSISTANT_ONLINE }
-data class ChatMessage(val role: MessageRole, val content: String)
+data class ChatMessage(
+    val role: MessageRole,
+    val content: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 // ── Main screen ────────────────────────────────────────────────────────────
 
@@ -241,6 +247,7 @@ fun ChatBubble(
                 )
             }
 
+            // Message text — use MarkdownText for AI, plain Text for user
             Box(
                 modifier = Modifier
                     .widthIn(max = 300.dp)
@@ -254,14 +261,28 @@ fun ChatBubble(
                     .background(bubbleColor)
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                Text(
-                    text = message.content,
-                    color = PrimaryAccent,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
+                if (isUser) {
+                    Text(text = message.content, color = PrimaryAccent, fontSize = 14.sp, lineHeight = 20.sp)
+                } else {
+                    MarkdownText(text = message.content)
+                }
             }
         }
+
+        // Timestamp below bubble
+        val timeStr = remember(message.timestamp) {
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
+        }
+        Text(
+            text = timeStr,
+            fontSize = 10.sp,
+            color = SecondaryAccent.copy(alpha = 0.6f),
+            modifier = Modifier.padding(
+                start = if (isUser) 0.dp else 14.dp,
+                end  = if (isUser) 14.dp else 0.dp,
+                top = 2.dp
+            )
+        )
 
         // Action buttons below AI messages (copy / regenerate)
         if (!isUser && message.content.isNotBlank()) {

@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.hybridai.data.ModelCatalog
 import com.example.hybridai.data.ModelInfo
+import com.example.hybridai.data.PersonaCatalog
 import com.example.hybridai.ui.theme.*
 
 @Composable
@@ -35,7 +36,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel()
 ) {
-    val tabs = listOf("🔑 Cloud AI", "🧠 Local Models", "🎨 Theme")
+    val tabs = listOf("🔑 Cloud AI", "🧠 Local Models", "🎨 Theme", "🤖 Persona")
     var selectedTab by remember { mutableIntStateOf(0) }
 
     Column(
@@ -90,6 +91,7 @@ fun SettingsScreen(
             0 -> CloudAITab(settingsViewModel)
             1 -> LocalModelsTab(settingsViewModel)
             2 -> ThemeTab(settingsViewModel)
+            3 -> PersonaTab(settingsViewModel)
         }
     }
 }
@@ -390,6 +392,84 @@ fun ThemeTab(vm: SettingsViewModel) {
                     Icon(Icons.Default.RadioButtonChecked, contentDescription = null, tint = LocalIndicator)
                 } else {
                     Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null, tint = SecondaryAccent)
+                }
+            }
+        }
+    }
+}
+
+// ─── Tab 4: Persona ──────────────────────────────────────────────────────────
+
+@Composable
+fun PersonaTab(vm: SettingsViewModel) {
+    val selectedId by vm.selectedPersonaId.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        item {
+            Text(
+                "Choose AI Persona",
+                color = PrimaryAccent,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "The persona sets the AI's personality and expertise for every response.",
+                color = SecondaryAccent,
+                fontSize = 12.sp
+            )
+        }
+
+        items(PersonaCatalog.personas) { persona ->
+            val isActive = persona.id == selectedId
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (isActive) SurfaceGray
+                        else DarkGray
+                    )
+                    .border(
+                        width = if (isActive) 1.dp else 0.dp,
+                        color = if (isActive) LocalIndicator else Color.Transparent,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .clickable { vm.savePersona(persona.id) }
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(persona.emoji, fontSize = 28.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            persona.name,
+                            color = if (isActive) PrimaryAccent else SecondaryAccent,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            persona.description,
+                            color = SecondaryAccent,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                if (isActive) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = "Active",
+                        tint = LocalIndicator,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
