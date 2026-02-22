@@ -29,6 +29,9 @@ target_include_directories(hybridai PUBLIC
     ${GGML_DIR}/src
     ${GGML_DIR}/src/ggml-cpu
     ${LLAMA_DIR}/include
+    ${LLAMA_DIR}/vendor          # nlohmann/json, required by peg-parser.h
+    ${LLAMA_DIR}/src/../include
+    ${GGML_DIR}/src/../include
 )
 
 target_compile_options(hybridai PUBLIC
