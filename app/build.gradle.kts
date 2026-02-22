@@ -21,11 +21,14 @@ android {
 
         externalNativeBuild {
             cmake {
-                // Compile flags targeted at low-end devices
-                cppFlags += "-std=c++11 -Wall -Wextra"
-                // Prevent bloated debug symbols if not strictly needed
+                // llama.cpp requires C++17
+                cppFlags += "-std=c++17"
                 arguments += "-DANDROID_STL=c++_shared"
             }
+        }
+        ndk {
+            // Build for modern 64-bit ARM devices (covers 99% of phones sold after 2016)
+            abiFilters += listOf("arm64-v8a")
         }
     }
 

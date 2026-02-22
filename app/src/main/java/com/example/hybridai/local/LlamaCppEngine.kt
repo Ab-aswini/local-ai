@@ -2,107 +2,172 @@ package com.example.hybridai.local
 
 import android.content.Context
 import android.util.Log
-import com.example.hybridai.data.AppPreferences
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Wrapper for llama.cpp JNI bindings.
- * Currently uses smart mock responses until real llama.cpp C++ is integrated.
- * When a GGUF model is downloaded and set in preferences, it acknowledges the model.
+ * Real llama.cpp inference engine via JNI.
+ * Loads a GGUF model file and generates responses token-by-token on device.
+ * System prompt adapted for a mobile assistant on low-RAM phones.
  */
 class LlamaCppEngine(private val context: Context) : InferenceEngine {
 
     companion object {
         private const val TAG = "LlamaCppEngine"
+
+        private const val SYSTEM_PROMPT =
+            "You are a helpful AI assistant running locally on an Android phone. " +
+            "Keep responses concise — under 3 sentences for simple questions. " +
+            "You have no internet access."
+
+        // Temperature: 0.8 (creative but coherent)
+        // minP: 0.05 (filters low-probability tokens)
+        // Context: 2048 tokens (good balance for 4GB RAM devices)
+        private const val TEMPERATURE   = 0.8f
+        private const val MIN_P         = 0.05f
+        private const val CONTEXT_SIZE  = 2048L
+        private const val NUM_THREADS   = 4
+
+        init {
+            System.loadLibrary("hybridai")
+        }
     }
 
-    override val engineName: String = "LlamaCpp / GGUF"
-    private var loadedModelPath: String = ""
+    override val engineName: String = "llama.cpp (GGUF)"
+
+    private var nativePtr: Long = 0L
     private var loadedModelName: String = ""
-    private var isLoaded = false
 
     /**
-     * Loads a GGUF model from disk.
-     * Real implementation will call JNI: nativeContextId = loadGgufModelJNI(modelPath, useMmap)
+     * Loads the GGUF model into memory via JNI.
+     * Uses mmap so large models don't consume all RAM upfront.
      */
     override suspend fun loadModel(modelPath: String, useMmap: Boolean): Boolean {
         return withContext(Dispatchers.IO) {
             val file = File(modelPath)
             if (!file.exists()) {
                 Log.w(TAG, "Model file not found: $modelPath")
-                isLoaded = false
                 return@withContext false
             }
 
-            // Validate it's actually a GGUF file (starts with "GGUF" magic bytes)
+            // Validate GGUF magic bytes before passing to C++
             val isGguf = try {
-                file.inputStream().use { stream ->
-                    val header = ByteArray(4)
-                    stream.read(header)
-                    String(header) == "GGUF"
+                file.inputStream().use { s ->
+                    val h = ByteArray(4); s.read(h); String(h) == "GGUF"
                 }
-            } catch (e: Exception) {
-                false
-            }
+            } catch (e: Exception) { false }
 
             if (!isGguf) {
-                Log.e(TAG, "File is not a valid GGUF: $modelPath")
-                isLoaded = false
+                Log.e(TAG, "Not a valid GGUF file: $modelPath")
                 return@withContext false
             }
 
-            // Real call would be: nativeContextId = loadGgufModelJNI(modelPath, useMmap)
-            loadedModelPath = modelPath
-            loadedModelName = file.name
-            isLoaded = true
-            Log.i(TAG, "Model ready (stub): $loadedModelName (${file.length() / 1_000_000}MB)")
-            true
+            try {
+                nativePtr = loadModelJNI(
+                    modelPath  = modelPath,
+                    minP       = MIN_P,
+                    temperature= TEMPERATURE,
+                    storeChats = true,
+                    contextSize= CONTEXT_SIZE,
+                    chatTemplate = "",   // use template embedded in the GGUF
+                    nThreads   = NUM_THREADS,
+                    useMmap    = useMmap,
+                    useMlock   = false
+                )
+                if (nativePtr != 0L) {
+                    loadedModelName = file.name
+                    // Add the system prompt so the model knows its role
+                    addChatMessageJNI(nativePtr, SYSTEM_PROMPT, "system")
+                    Log.i(TAG, "✅ Loaded: $loadedModelName (ptr=$nativePtr)")
+                    true
+                } else {
+                    Log.e(TAG, "loadModelJNI returned null pointer")
+                    false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "JNI loadModel failed: ${e.message}", e)
+                false
+            }
         }
     }
 
+    /**
+     * Streams real token-by-token inference as a Flow<String>.
+     * Each emission is a token piece (word fragment) from the model.
+     */
     override fun generateResponse(prompt: String): Flow<String> = flow {
-        if (!isLoaded) {
-            emit("🟡 No local model loaded yet.\n\n")
-            emit("Go to ⚙️ Settings → 🧠 Local Models → download a model → tap 'Use this model'.\n\n")
-            emit("Or use Cloud AI (Settings → 🔑 Cloud AI) for real AI responses now.")
+        if (nativePtr == 0L) {
+            emit("🟡 No local model loaded.\n\n")
+            emit("Go to ⚙️ Settings → 🧠 Local Models → download a model → tap 'Use this model'.")
             return@flow
         }
 
-        // Model is downloaded and verified — but real inference needs llama.cpp C++ (Phase 3)
-        // For now, respond with context-aware stubs that are honest about the state
-        val response = when {
-            prompt.contains("hello", ignoreCase = true) || prompt.contains("hi", ignoreCase = true) ->
-                "Hello! I'm using $loadedModelName on your device. Real llama.cpp inference is coming in the next update!"
+        try {
+            Log.d(TAG, "Starting inference for: ${prompt.take(50)}")
+            withContext(Dispatchers.IO) {
+                startCompletionJNI(nativePtr, prompt)
+            }
 
-            prompt.contains("what", ignoreCase = true) && prompt.contains("you", ignoreCase = true) ->
-                "I'm a local AI assistant. My model ($loadedModelName) is loaded and ready. Full on-device inference will be active after the llama.cpp C++ integration."
+            var tokenCount = 0
+            while (true) {
+                val piece = withContext(Dispatchers.IO) {
+                    completionLoopJNI(nativePtr)
+                }
+                if (piece == "[EOG]") {
+                    Log.d(TAG, "Inference complete. Tokens: $tokenCount")
+                    break
+                }
+                if (piece.isNotEmpty()) {
+                    emit(piece)
+                    tokenCount++
+                }
+            }
 
-            prompt.contains("model", ignoreCase = true) || prompt.contains("downloaded", ignoreCase = true) ->
-                "✅ $loadedModelName is downloaded and verified on your device! Real inference is the next step."
+            withContext(Dispatchers.IO) {
+                stopCompletionJNI(nativePtr)
+            }
 
-            prompt.length < 30 ->
-                "I received your message using $loadedModelName locally. Real token generation is coming soon!"
-
-            else ->
-                "Processing with $loadedModelName (on-device). Note: Real llama.cpp C++ inference is Phase 3 of this project. Right now I'm running a stub that acknowledges the model."
-        }
-
-        for (word in response.split(" ")) {
-            delay(30)
-            emit("$word ")
+        } catch (e: Exception) {
+            Log.e(TAG, "Inference error: ${e.message}", e)
+            emit("\n⚠️ Inference error: ${e.message}")
         }
     }
 
     override fun unload() {
-        // Real: if (nativeContextId != 0L) freeGgufModelJNI(nativeContextId)
-        isLoaded = false
-        loadedModelPath = ""
-        loadedModelName = ""
+        if (nativePtr != 0L) {
+            closeModelJNI(nativePtr)
+            nativePtr = 0L
+            loadedModelName = ""
+            Log.i(TAG, "Model unloaded")
+        }
     }
+
+    // ── JNI declarations (implemented in hybridai.cpp) ────────────────────
+
+    private external fun loadModelJNI(
+        modelPath: String,
+        minP: Float,
+        temperature: Float,
+        storeChats: Boolean,
+        contextSize: Long,
+        chatTemplate: String,
+        nThreads: Int,
+        useMmap: Boolean,
+        useMlock: Boolean
+    ): Long
+
+    private external fun addChatMessageJNI(modelPtr: Long, message: String, role: String)
+
+    private external fun startCompletionJNI(modelPtr: Long, prompt: String)
+
+    private external fun completionLoopJNI(modelPtr: Long): String
+
+    private external fun stopCompletionJNI(modelPtr: Long)
+
+    private external fun closeModelJNI(modelPtr: Long)
+
+    private external fun getSpeedJNI(modelPtr: Long): Float
 }
