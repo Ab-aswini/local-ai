@@ -1,14 +1,15 @@
 package com.example.hybridai.core
 
 import android.util.Log
+import com.example.hybridai.data.PersonaCatalog
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.onEach
 
 enum class TaskComplexity { SIMPLE, COMPLEX }
 
 /**
  * Routes user prompts to local (llama.cpp) or cloud (Gemini) based on complexity.
- * Exposes `lastUsedCloud` so the ViewModel can correctly tag the message role.
+ * Injects the selected persona's system prompt ahead of generation.
+ * Exposes [lastUsedCloud] so the ViewModel can tag message role correctly.
  */
 class TaskOrchestrator(
     private val localInferenceManager: com.example.hybridai.local.LocalInferenceManager,
@@ -17,38 +18,50 @@ class TaskOrchestrator(
     companion object {
         private const val TAG = "TaskOrchestrator"
 
-        // Heuristics — extends to an ML classifier in future
         private val COMPLEX_KEYWORDS = listOf(
             "code", "write a script", "analyze", "deep dive", "research",
             "explain", "compare", "summarize", "translate", "debug", "refactor",
-            "what is", "how does", "why does", "difference between"
+            "what is", "how does", "why does", "difference between", "essay",
+            "write a", "generate a report"
         )
     }
 
-    /** True if the last routed call used the cloud (Gemini) engine */
+    /** What persona to use for this session. Defaults to Assistant. */
+    var activePersonaId: String = "assistant"
+
+    /** True after the last call if cloud was used */
     var lastUsedCloud: Boolean = false
         private set
 
+    /** Legacy alias */
+    fun processPrompt(prompt: String) = processInput(prompt)
+
     /**
-     * Evaluates complexity and routes to local or cloud engine.
-     * Returns a Flow<String> of streamed token pieces.
+     * Evaluates complexity and routes to local or cloud.
+     * Prepends the persona system prompt to the user's message.
      */
     fun processInput(prompt: String): Flow<String> {
+        val persona = PersonaCatalog.findById(activePersonaId)
+        val augmentedPrompt = buildPromptWithPersona(persona.systemPrompt, prompt)
         val complexity = evaluateComplexity(prompt)
 
         return if (complexity == TaskComplexity.SIMPLE) {
-            Log.i(TAG, "→ LOCAL: simple task")
+            Log.i(TAG, "→ LOCAL [${persona.name}]: $prompt")
             lastUsedCloud = false
-            localInferenceManager.generateResponse(prompt)
+            localInferenceManager.generateResponse(augmentedPrompt)
         } else {
-            Log.i(TAG, "→ CLOUD: complex task")
+            Log.i(TAG, "→ CLOUD [${persona.name}]: $prompt")
             lastUsedCloud = true
-            onlineApiClient.generateResponse(prompt)
+            onlineApiClient.generateResponse(augmentedPrompt)
         }
     }
 
-    /** Legacy alias */
-    fun processPrompt(prompt: String) = processInput(prompt)
+    private fun buildPromptWithPersona(systemPrompt: String, userPrompt: String): String {
+        // Local model uses raw prompt — system prompt already set at model load.
+        // For cloud (Gemini), we prepend it inline since Gemini doesn't support
+        // a separate system role via simple HTTP without chat history.
+        return "[SYSTEM: $systemPrompt]\n\nUSER: $userPrompt"
+    }
 
     private fun evaluateComplexity(prompt: String): TaskComplexity {
         val lower = prompt.lowercase()

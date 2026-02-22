@@ -22,7 +22,8 @@ class AppPreferences(private val context: Context) {
         val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         val SELECTED_MODEL_PATH = stringPreferencesKey("selected_model_path")
         val SELECTED_MODEL_NAME = stringPreferencesKey("selected_model_name")
-        val APP_THEME = stringPreferencesKey("app_theme") // "dark" | "amoled" | "light"
+        val APP_THEME = stringPreferencesKey("app_theme")           // "dark" | "amoled" | "light"
+        val SELECTED_PERSONA_ID = stringPreferencesKey("persona_id") // see PersonaCatalog
     }
 
     // ── Reads ──────────────────────────────────────
@@ -43,6 +44,10 @@ class AppPreferences(private val context: Context) {
         prefs[APP_THEME] ?: "amoled"
     }
 
+    val selectedPersonaId: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[SELECTED_PERSONA_ID] ?: "assistant"
+    }
+
     // ── Writes ─────────────────────────────────────
 
     suspend fun saveGeminiApiKey(key: String) {
@@ -58,6 +63,10 @@ class AppPreferences(private val context: Context) {
 
     suspend fun saveTheme(theme: String) {
         context.dataStore.edit { prefs -> prefs[APP_THEME] = theme }
+    }
+
+    suspend fun savePersona(personaId: String) {
+        context.dataStore.edit { prefs -> prefs[SELECTED_PERSONA_ID] = personaId }
     }
 
     suspend fun clearModel() {
