@@ -34,7 +34,7 @@
 			{
 				"command" : 1,
 				"file" : 0,
-				"line" : 47,
+				"line" : 51,
 				"parent" : 0
 			},
 			{
@@ -163,11 +163,11 @@
 	[
 		{
 			"backtrace" : 3,
-			"id" : "ggml::@d3a65483471855fe1d21"
+			"id" : "ggml-base::@d3a65483471855fe1d21"
 		},
 		{
 			"backtrace" : 3,
-			"id" : "ggml-base::@d3a65483471855fe1d21"
+			"id" : "ggml::@d3a65483471855fe1d21"
 		},
 		{
 			"backtrace" : 3,
@@ -215,11 +215,6 @@
 			{
 				"backtrace" : 3,
 				"fragment" : "bin\\libllama.so",
-				"role" : "libraries"
-			},
-			{
-				"backtrace" : 3,
-				"fragment" : "-lcommon",
 				"role" : "libraries"
 			},
 			{

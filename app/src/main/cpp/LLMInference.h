@@ -1,33 +1,30 @@
 #pragma once
-#include "chat.h"
-#include "common.h"
-#include "llama.h"
+#include "llama.h"   // only dependency — no common.h, no chat.h
 #include <string>
 #include <vector>
 
 class LLMInference {
-    llama_context* _ctx;
-    llama_model*   _model;
-    llama_sampler* _sampler;
+    llama_context* _ctx    = nullptr;
+    llama_model*   _model  = nullptr;
+    llama_sampler* _sampler = nullptr;
     llama_token    _currToken;
-    llama_batch*   _batch;
+    llama_batch*   _batch  = nullptr;
 
-    llama_batch g_batch;
-
-    std::vector<llama_chat_message> _messages;
-    std::vector<char>               _formattedMessages;
-    std::vector<llama_token>        _promptTokens;
-    const char*                     _chatTemplate;
+    // Chat history stored as role/content pairs
+    struct ChatMsg { std::string role; std::string content; };
+    std::vector<ChatMsg>     _chatHistory;
+    std::vector<llama_token> _promptTokens;
+    std::string              _chatTemplate; // empty = use model default
 
     std::string _response;
     std::string _cacheResponseTokens;
-    bool        _storeChats;
+    bool        _storeChats = false;
 
     int64_t _responseGenerationTime = 0;
     long    _responseNumTokens      = 0;
     int     _nCtxUsed               = 0;
 
-    bool _isValidUtf8(const char* response);
+    bool _isValidUtf8(const char* s);
 
   public:
     void loadModel(const char* modelPath, float minP, float temperature,
@@ -37,13 +34,11 @@ class LLMInference {
     void addChatMessage(const char* message, const char* role);
 
     float getResponseGenerationTime() const;
-    int   getContextSizeUsed() const;
+    int   getContextSizeUsed()        const;
 
     void        startCompletion(const char* query);
     std::string completionLoop();
     void        stopCompletion();
-
-    std::string benchModel(int pp, int tg, int pl, int nr);
 
     ~LLMInference();
 };
