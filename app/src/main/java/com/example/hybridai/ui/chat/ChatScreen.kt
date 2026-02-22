@@ -123,6 +123,13 @@ fun ChatScreen(
 
         // ── Message List + FAB overlay ────────────────────────────────────
         Box(modifier = Modifier.weight(1f)) {
+            // Empty state shown while no messages exist
+            if (messages.isEmpty() && !isLoading) {
+                EmptyStateView(
+                    modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
+                )
+            }
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 state = listState,
