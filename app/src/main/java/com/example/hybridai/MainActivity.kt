@@ -52,12 +52,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             HybridAITheme {
                 val messages by viewModel.messages.collectAsState()
-                
+                val isLoading by viewModel.isLoading.collectAsState()
+
                 ChatScreen(
                     messages = messages,
-                    onSendMessage = { prompt ->
-                        viewModel.sendMessage(prompt)
-                    }
+                    isLoading = isLoading,
+                    onSendMessage = { prompt -> viewModel.sendMessage(prompt) },
+                    onClearChat = { viewModel.clearChat() }
                 )
             }
         }
