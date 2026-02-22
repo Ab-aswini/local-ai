@@ -2,15 +2,13 @@ package com.example.hybridai.core
 
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
 
-enum class TaskComplexity {
-    SIMPLE,  // e.g., small chat, system commands
-    COMPLEX  // e.g., deep analysis, coding help
-}
+enum class TaskComplexity { SIMPLE, COMPLEX }
 
 /**
- * The 'Hybrid Router'. Analyzes user intent and routes to Local or Online engines.
+ * Routes user prompts to local (llama.cpp) or cloud (Gemini) based on complexity.
+ * Exposes `lastUsedCloud` so the ViewModel can correctly tag the message role.
  */
 class TaskOrchestrator(
     private val localInferenceManager: com.example.hybridai.local.LocalInferenceManager,
@@ -18,41 +16,44 @@ class TaskOrchestrator(
 ) {
     companion object {
         private const val TAG = "TaskOrchestrator"
-        
-        // Basic heuristic for complexity. In a real app, this could use a small local classifier
-        // or regex patterns for specific intents.
-        private val COMPLEX_KEYWORDS = listOf("code", "write a script", "analyze", "deep dive", "research")
+
+        // Heuristics — extends to an ML classifier in future
+        private val COMPLEX_KEYWORDS = listOf(
+            "code", "write a script", "analyze", "deep dive", "research",
+            "explain", "compare", "summarize", "translate", "debug", "refactor",
+            "what is", "how does", "why does", "difference between"
+        )
     }
 
+    /** True if the last routed call used the cloud (Gemini) engine */
+    var lastUsedCloud: Boolean = false
+        private set
+
     /**
-     * Evaluates user prompt and routes to the appropriate engine.
-     * Returns a Flow of strings representing the streamed response.
+     * Evaluates complexity and routes to local or cloud engine.
+     * Returns a Flow<String> of streamed token pieces.
      */
-    fun processPrompt(prompt: String): Flow<String> {
+    fun processInput(prompt: String): Flow<String> {
         val complexity = evaluateComplexity(prompt)
-        
+
         return if (complexity == TaskComplexity.SIMPLE) {
-            Log.i(TAG, "Routing to Local Engine for SIMPLE task.")
+            Log.i(TAG, "→ LOCAL: simple task")
+            lastUsedCloud = false
             localInferenceManager.generateResponse(prompt)
         } else {
-            Log.i(TAG, "Routing to Online API for COMPLEX task.")
+            Log.i(TAG, "→ CLOUD: complex task")
+            lastUsedCloud = true
             onlineApiClient.generateResponse(prompt)
         }
     }
 
+    /** Legacy alias */
+    fun processPrompt(prompt: String) = processInput(prompt)
+
     private fun evaluateComplexity(prompt: String): TaskComplexity {
-        val lowerPrompt = prompt.lowercase()
-        // If the prompt is very long, it likely requires more context/power
-        if (prompt.length > 500) {
-            return TaskComplexity.COMPLEX
-        }
-        
-        // Checking for coding or complex keywords
-        if (COMPLEX_KEYWORDS.any { lowerPrompt.contains(it) }) {
-            return TaskComplexity.COMPLEX
-        }
-        
-        // Default to simple/local
+        val lower = prompt.lowercase()
+        if (prompt.length > 200) return TaskComplexity.COMPLEX
+        if (COMPLEX_KEYWORDS.any { lower.contains(it) }) return TaskComplexity.COMPLEX
         return TaskComplexity.SIMPLE
     }
 }

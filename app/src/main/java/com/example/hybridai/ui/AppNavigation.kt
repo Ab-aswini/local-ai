@@ -3,7 +3,6 @@ package com.example.hybridai.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -23,22 +22,24 @@ fun AppNavigation(mainViewModel: MainViewModel) {
     NavHost(navController = navController, startDestination = Routes.CHAT) {
 
         composable(Routes.CHAT) {
-            val messages by mainViewModel.messages.collectAsState()
-            val isLoading by mainViewModel.isLoading.collectAsState()
+            val messages        by mainViewModel.messages.collectAsState()
+            val isLoading       by mainViewModel.isLoading.collectAsState()
+            val tokensPerSecond by mainViewModel.tokensPerSecond.collectAsState()
 
             ChatScreen(
-                messages = messages,
-                isLoading = isLoading,
-                onSendMessage = { prompt -> mainViewModel.sendMessage(prompt) },
-                onClearChat = { mainViewModel.clearChat() },
-                onOpenSettings = { navController.navigate(Routes.SETTINGS) }
+                messages            = messages,
+                isLoading           = isLoading,
+                tokensPerSecond     = tokensPerSecond,
+                onSendMessage       = { prompt -> mainViewModel.sendMessage(prompt) },
+                onClearChat         = { mainViewModel.clearChat() },
+                onOpenSettings      = { navController.navigate(Routes.SETTINGS) },
+                onStopGeneration    = { mainViewModel.stopGeneration() },
+                onRegenerateResponse = { mainViewModel.regenerateLastResponse() }
             )
         }
 
         composable(Routes.SETTINGS) {
-            SettingsScreen(
-                onNavigateBack = { navController.popBackStack() }
-            )
+            SettingsScreen(onNavigateBack = { navController.popBackStack() })
         }
     }
 }

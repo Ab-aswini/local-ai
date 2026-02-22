@@ -4,8 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.hybridai.core.TaskOrchestrator
 import com.example.hybridai.data.AppPreferences
@@ -23,21 +21,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var taskOrchestrator: TaskOrchestrator
 
     private val viewModel: MainViewModel by viewModels {
-        object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-                    @Suppress("UNCHECKED_CAST")
-                    return MainViewModel(taskOrchestrator) as T
-                }
-                throw IllegalArgumentException("Unknown ViewModel class")
-            }
-        }
+        MainViewModel.Factory(applicationContext, taskOrchestrator)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize preferences and dependencies
         appPreferences = AppPreferences(applicationContext)
         onlineApiClient = OnlineApiClient(appPreferences)
         localInferenceManager = LocalInferenceManager(applicationContext)
@@ -46,6 +35,9 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             localInferenceManager.initialize()
         }
+
+        // Start a new chat session when app opens
+        viewModel.startNewSession()
 
         setContent {
             HybridAITheme {

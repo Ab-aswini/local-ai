@@ -11,15 +11,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -27,28 +27,34 @@ import androidx.compose.ui.unit.sp
 import com.example.hybridai.ui.theme.*
 import kotlinx.coroutines.launch
 
-// Data model for messages
+// ── Data models ────────────────────────────────────────────────────────────
+
 enum class MessageRole { USER, ASSISTANT_LOCAL, ASSISTANT_ONLINE }
 data class ChatMessage(val role: MessageRole, val content: String)
+
+// ── Main screen ────────────────────────────────────────────────────────────
 
 @Composable
 fun ChatScreen(
     messages: List<ChatMessage>,
     isLoading: Boolean,
+    tokensPerSecond: Float,
     onSendMessage: (String) -> Unit,
     onClearChat: () -> Unit,
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onStopGeneration: () -> Unit = {},
+    onRegenerateResponse: () -> Unit = {}
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    var copiedMessageIndex by remember { mutableStateOf(-1) }
 
-    // Auto-scroll to bottom when new messages arrive
-    LaunchedEffect(messages.size) {
+    // Auto-scroll to bottom on new messages
+    LaunchedEffect(messages.size, isLoading) {
         if (messages.isNotEmpty()) {
-            coroutineScope.launch {
-                listState.animateScrollToItem(messages.lastIndex)
-            }
+            listState.animateScrollToItem(messages.lastIndex)
         }
     }
 
@@ -57,7 +63,7 @@ fun ChatScreen(
             .fillMaxSize()
             .background(TrueBlack)
     ) {
-        // Top App Bar
+        // ── Top App Bar ──────────────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -73,191 +79,268 @@ fun ChatScreen(
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
-                Text(
-                    text = if (isLoading) "Thinking..." else "🟢 Local  🔵 Cloud",
-                    color = SecondaryAccent,
-                    fontSize = 12.sp
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = if (isLoading) "Thinking…" else "🟢 Local  🔵 Cloud",
+                        color = SecondaryAccent,
+                        fontSize = 11.sp
+                    )
+                    if (tokensPerSecond > 0f && !isLoading) {
+                        Text("⚡ ${"%.1f".format(tokensPerSecond)} tok/s",
+                            color = LocalIndicator, fontSize = 11.sp)
+                    }
+                }
             }
             Row {
                 IconButton(onClick = onClearChat) {
-                    Icon(Icons.Default.Delete, contentDescription = "Clear chat", tint = SecondaryAccent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Delete, contentDescription = "Clear chat",
+                        tint = SecondaryAccent, modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Default.Settings, contentDescription = "Settings", tint = PrimaryAccent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Settings, contentDescription = "Settings",
+                        tint = PrimaryAccent, modifier = Modifier.size(20.dp))
                 }
             }
         }
 
-        // Chat Messages List
+        // ── Message List ─────────────────────────────────────────────────
         LazyColumn(
+            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
             state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(vertical = 12.dp)
         ) {
-            items(messages) { message ->
-                MessageBubble(message)
+            items(messages.size) { index ->
+                val message = messages[index]
+                val isCopied = copiedMessageIndex == index
+
+                ChatBubble(
+                    message = message,
+                    isCopied = isCopied,
+                    onCopy = {
+                        clipboard.setText(AnnotatedString(message.content))
+                        copiedMessageIndex = index
+                    },
+                    onRegenerate = if (index == messages.lastIndex && message.role != MessageRole.USER) {
+                        { onRegenerateResponse() }
+                    } else null
+                )
             }
-            // Show typing animation at the bottom while loading
-            if (isLoading && messages.lastOrNull()?.content?.isEmpty() == true) {
-                item {
-                    TypingIndicator()
-                }
+
+            // Typing indicator while loading
+            if (isLoading && (messages.isEmpty() || messages.last().role == MessageRole.USER)) {
+                item { TypingIndicator() }
             }
+
+            item { Spacer(modifier = Modifier.height(8.dp)) }
         }
 
-        // Input Field
+        // ── Input Row ────────────────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(DarkGray)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            TextField(
+            OutlinedTextField(
                 value = inputText,
                 onValueChange = { inputText = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(24.dp)),
-                placeholder = { Text("Ask something...", color = SecondaryAccent, fontSize = 15.sp) },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Ask something…", color = SecondaryAccent, fontSize = 14.sp) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(
-                    onSend = {
-                        if (inputText.isNotBlank() && !isLoading) {
-                            onSendMessage(inputText)
-                            inputText = ""
-                        }
+                keyboardActions = KeyboardActions(onSend = {
+                    if (!isLoading && inputText.isNotBlank()) {
+                        onSendMessage(inputText.trim())
+                        inputText = ""
                     }
-                ),
-                maxLines = 4,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = SurfaceGray,
-                    unfocusedContainerColor = SurfaceGray,
+                }),
+                maxLines = 5,
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = PrimaryAccent,
+                    unfocusedBorderColor = SurfaceGray,
                     focusedTextColor = PrimaryAccent,
                     unfocusedTextColor = PrimaryAccent,
                     cursorColor = PrimaryAccent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
+                    focusedContainerColor = SurfaceGray,
+                    unfocusedContainerColor = SurfaceGray
                 )
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
-                onClick = {
-                    if (inputText.isNotBlank() && !isLoading) {
-                        onSendMessage(inputText)
-                        inputText = ""
-                    }
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(if (isLoading) SurfaceGray else PrimaryAccent),
-                enabled = !isLoading
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Send",
-                    tint = if (isLoading) SecondaryAccent else TrueBlack
-                )
+
+            // Stop button while generating / Send button otherwise
+            if (isLoading) {
+                FilledIconButton(
+                    onClick = onStopGeneration,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color.Red.copy(alpha = 0.8f)
+                    )
+                ) {
+                    Icon(Icons.Default.Stop, contentDescription = "Stop", tint = Color.White)
+                }
+            } else {
+                FilledIconButton(
+                    onClick = {
+                        if (inputText.isNotBlank()) {
+                            onSendMessage(inputText.trim())
+                            inputText = ""
+                        }
+                    },
+                    enabled = inputText.isNotBlank(),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = PrimaryAccent,
+                        disabledContainerColor = SurfaceGray
+                    )
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = "Send", tint = TrueBlack)
+                }
             }
         }
     }
 }
 
-@Composable
-fun MessageBubble(message: ChatMessage) {
-    val isUser = message.role == MessageRole.USER
-    val backgroundColor = if (isUser) UserMessageColor else SurfaceGray
+// ── Chat Bubble ────────────────────────────────────────────────────────────
 
+@Composable
+fun ChatBubble(
+    message: ChatMessage,
+    isCopied: Boolean,
+    onCopy: () -> Unit,
+    onRegenerate: (() -> Unit)?
+) {
+    val isUser = message.role == MessageRole.USER
+    val bubbleColor = when (message.role) {
+        MessageRole.USER               -> SurfaceGray
+        MessageRole.ASSISTANT_LOCAL    -> DarkGray
+        MessageRole.ASSISTANT_ONLINE   -> Color(0xFF0A1628)
+    }
     val indicatorColor = when (message.role) {
-        MessageRole.ASSISTANT_LOCAL -> LocalIndicator
+        MessageRole.ASSISTANT_LOCAL  -> LocalIndicator
         MessageRole.ASSISTANT_ONLINE -> OnlineIndicator
-        else -> Color.Transparent
+        else                         -> Color.Transparent
     }
 
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        if (!isUser) {
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Role dot for AI messages
+            if (!isUser) {
+                Box(
+                    modifier = Modifier
+                        .padding(end = 6.dp, bottom = 4.dp)
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(indicatorColor)
+                )
+            }
+
             Box(
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(indicatorColor)
-                    .align(Alignment.Top)
-                    .padding(top = 6.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+                    .widthIn(max = 300.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 18.dp, topEnd = 18.dp,
+                            bottomStart = if (isUser) 18.dp else 4.dp,
+                            bottomEnd = if (isUser) 4.dp else 18.dp
+                        )
+                    )
+                    .background(bubbleColor)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = message.content,
+                    color = PrimaryAccent,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            }
         }
 
-        Box(
-            modifier = Modifier
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = if (isUser) 18.dp else 4.dp,
-                        bottomEnd = if (isUser) 4.dp else 18.dp
+        // Action buttons below AI messages (copy / regenerate)
+        if (!isUser && message.content.isNotBlank()) {
+            Row(
+                modifier = Modifier.padding(start = 14.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Copy button
+                TextButton(
+                    onClick = onCopy,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(
+                        if (isCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                        contentDescription = "Copy",
+                        tint = if (isCopied) LocalIndicator else SecondaryAccent,
+                        modifier = Modifier.size(14.dp)
                     )
-                )
-                .background(backgroundColor)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .widthIn(max = 300.dp)
-        ) {
-            Text(
-                text = message.content,
-                color = PrimaryAccent,
-                style = MaterialTheme.typography.bodyLarge,
-                lineHeight = 22.sp
-            )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (isCopied) "Copied!" else "Copy",
+                        fontSize = 11.sp,
+                        color = if (isCopied) LocalIndicator else SecondaryAccent
+                    )
+                }
+
+                // Regenerate button (only for last AI message)
+                if (onRegenerate != null) {
+                    TextButton(
+                        onClick = onRegenerate,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Regenerate",
+                            tint = SecondaryAccent, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Regenerate", fontSize = 11.sp, color = SecondaryAccent)
+                    }
+                }
+            }
         }
     }
 }
 
+// ── Typing Indicator ───────────────────────────────────────────────────────
+
 @Composable
 fun TypingIndicator() {
     val infiniteTransition = rememberInfiniteTransition(label = "typing")
-
-    val dot1Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f, targetValue = 1f, label = "d1",
-        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse)
-    )
-    val dot2Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f, targetValue = 1f, label = "d2",
-        animationSpec = infiniteRepeatable(tween(600, delayMillis = 200), RepeatMode.Reverse)
-    )
-    val dot3Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f, targetValue = 1f, label = "d3",
-        animationSpec = infiniteRepeatable(tween(600, delayMillis = 400), RepeatMode.Reverse)
-    )
+    val dotAlphas = (0..2).map { index ->
+        infiniteTransition.animateFloat(
+            initialValue = 0.3f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes {
+                    durationMillis = 1000
+                    0.3f at index * 200
+                    1f at index * 200 + 300
+                    0.3f at 900
+                },
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "dot$index"
+        )
+    }
 
     Row(
-        modifier = Modifier.padding(start = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(DarkGray)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(LocalIndicator.copy(alpha = dot1Alpha))
-        )
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(LocalIndicator.copy(alpha = dot2Alpha))
-        )
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(LocalIndicator.copy(alpha = dot3Alpha))
-        )
+        dotAlphas.forEach { alpha ->
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(SecondaryAccent.copy(alpha = alpha.value))
+            )
+        }
     }
 }
