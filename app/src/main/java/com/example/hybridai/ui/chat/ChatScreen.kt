@@ -57,6 +57,15 @@ fun ChatScreen(
     val clipboard = LocalClipboardManager.current
     var copiedMessageIndex by remember { mutableStateOf(-1) }
 
+    // Show scroll-to-bottom FAB when not near the bottom
+    val showScrollFab by remember {
+        derivedStateOf {
+            val lastVisibleIdx = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = listState.layoutInfo.totalItemsCount
+            totalItems > 0 && lastVisibleIdx < totalItems - 3
+        }
+    }
+
     // Auto-scroll to bottom on new messages
     LaunchedEffect(messages.size, isLoading) {
         if (messages.isNotEmpty()) {
@@ -109,36 +118,54 @@ fun ChatScreen(
             }
         }
 
-        // ── Message List ─────────────────────────────────────────────────
-        LazyColumn(
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 12.dp)
-        ) {
-            items(messages.size) { index ->
-                val message = messages[index]
-                val isCopied = copiedMessageIndex == index
+        // ── Message List + FAB overlay ────────────────────────────────────
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                items(messages.size) { index ->
+                    val message = messages[index]
+                    val isCopied = copiedMessageIndex == index
 
-                ChatBubble(
-                    message = message,
-                    isCopied = isCopied,
-                    onCopy = {
-                        clipboard.setText(AnnotatedString(message.content))
-                        copiedMessageIndex = index
+                    ChatBubble(
+                        message = message,
+                        isCopied = isCopied,
+                        onCopy = {
+                            clipboard.setText(AnnotatedString(message.content))
+                            copiedMessageIndex = index
+                        },
+                        onRegenerate = if (index == messages.lastIndex && message.role != MessageRole.USER) {
+                            { onRegenerateResponse() }
+                        } else null
+                    )
+                }
+
+                if (isLoading && (messages.isEmpty() || messages.last().role == MessageRole.USER)) {
+                    item { TypingIndicator() }
+                }
+                item { Spacer(modifier = Modifier.height(8.dp)) }
+            }
+
+            // Scroll-to-bottom FAB
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showScrollFab,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
+                exit  = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut()
+            ) {
+                SmallFloatingActionButton(
+                    onClick = {
+                        scope.launch { listState.animateScrollToItem(messages.lastIndex.coerceAtLeast(0)) }
                     },
-                    onRegenerate = if (index == messages.lastIndex && message.role != MessageRole.USER) {
-                        { onRegenerateResponse() }
-                    } else null
-                )
+                    containerColor = SurfaceGray,
+                    contentColor = PrimaryAccent
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom")
+                }
             }
-
-            // Typing indicator while loading
-            if (isLoading && (messages.isEmpty() || messages.last().role == MessageRole.USER)) {
-                item { TypingIndicator() }
-            }
-
-            item { Spacer(modifier = Modifier.height(8.dp)) }
         }
 
         // ── Quick Action Chips (shown when input is empty) ────────────────

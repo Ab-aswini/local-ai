@@ -189,32 +189,52 @@ fun CloudAITab(vm: SettingsViewModel) {
 @Composable
 fun LocalModelsTab(vm: SettingsViewModel) {
     val downloadProgress by vm.downloadProgress.collectAsState()
-    val activeModelName by vm.selectedModelName.collectAsState()
+    val activeModelName  by vm.selectedModelName.collectAsState()
+
+    // ── Storage info ─────────────────────────────────────────────────────
+    val freeStorageGb = remember {
+        try {
+            val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+            (stat.availableBlocksLong * stat.blockSizeLong) / (1024f * 1024 * 1024)
+        } catch (e: Exception) { -1f }
+    }
+    val lowStorage = freeStorageGb in 0f..1f
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text(
-                "Download a local model to run AI entirely on your device — no internet needed.",
-                color = SecondaryAccent,
-                fontSize = 13.sp,
-                lineHeight = 20.sp,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "Download a local model to run AI entirely on your device — no internet needed.",
+                    color = SecondaryAccent, fontSize = 13.sp, lineHeight = 20.sp
+                )
+                if (freeStorageGb >= 0f) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Storage, contentDescription = null,
+                            tint = if (lowStorage) Color(0xFFFFB300) else SecondaryAccent,
+                            modifier = Modifier.size(14.dp))
+                        Text(
+                            "${"%.1f".format(freeStorageGb)} GB free on device" +
+                                if (lowStorage) " — ⚠️ Low storage" else "",
+                            color = if (lowStorage) Color(0xFFFFB300) else SecondaryAccent,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
         }
         items(ModelCatalog.models) { model ->
             ModelCard(
-                model = model,
-                isActive = activeModelName == model.name,
+                model        = model,
+                isActive     = activeModelName == model.name,
                 isDownloaded = vm.isDownloaded(model),
-                progress = downloadProgress[model.id],
-                onDownload = { vm.downloadModel(model) },
-                onActivate = { vm.activateModel(model) },
-                onDelete = { vm.deleteModel(model) }
+                progress     = downloadProgress[model.id],
+                onDownload   = { vm.downloadModel(model) },
+                onActivate   = { vm.activateModel(model) },
+                onDelete     = { vm.deleteModel(model) }
             )
         }
         item { Spacer(Modifier.height(24.dp)) }

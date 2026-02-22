@@ -53,6 +53,21 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
                 return@withContext false
             }
 
+            // ── OOM Guard ───────────────────────────────────────────────────
+            // Compare model size against available RAM. Refuse to load if it
+            // would push us into kernel OOM territory — avoids SIGKILL crash.
+            val activityManager = context.getSystemService(android.app.ActivityManager::class.java)
+            val memInfo = android.app.ActivityManager.MemoryInfo()
+            activityManager?.getMemoryInfo(memInfo)
+            val availableRamMb = memInfo.availMem / (1024 * 1024)
+            val modelSizeMb    = file.length() / (1024 * 1024)
+            // Require: model size + 300 MB buffer < available RAM
+            if (availableRamMb < modelSizeMb + 300) {
+                Log.e(TAG, "❌ OOM risk: model=${modelSizeMb}MB, available=${availableRamMb}MB. Refusing to load.")
+                return@withContext false
+            }
+            Log.i(TAG, "✅ RAM check: model=${modelSizeMb}MB, available=${availableRamMb}MB")
+
             // Validate GGUF magic bytes before passing to C++
             val isGguf = try {
                 file.inputStream().use { s ->
@@ -65,23 +80,26 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
                 return@withContext false
             }
 
+            // ── Dynamic thread count based on CPU cores ─────────────────────
+            val numCores = Runtime.getRuntime().availableProcessors()
+            val threads  = (numCores / 2).coerceIn(2, 6) // use half cores, capped 2–6
+
             try {
                 nativePtr = loadModelJNI(
-                    modelPath  = modelPath,
-                    minP       = MIN_P,
-                    temperature= TEMPERATURE,
-                    storeChats = true,
-                    contextSize= CONTEXT_SIZE,
-                    chatTemplate = "",   // use template embedded in the GGUF
-                    nThreads   = NUM_THREADS,
-                    useMmap    = useMmap,
-                    useMlock   = false
+                    modelPath   = modelPath,
+                    minP        = MIN_P,
+                    temperature = TEMPERATURE,
+                    storeChats  = true,
+                    contextSize = CONTEXT_SIZE,
+                    chatTemplate = "",    // use template embedded in the GGUF
+                    nThreads    = threads,
+                    useMmap     = useMmap,
+                    useMlock    = false
                 )
                 if (nativePtr != 0L) {
                     loadedModelName = file.name
-                    // Add the system prompt so the model knows its role
                     addChatMessageJNI(nativePtr, SYSTEM_PROMPT, "system")
-                    Log.i(TAG, "✅ Loaded: $loadedModelName (ptr=$nativePtr)")
+                    Log.i(TAG, "✅ Loaded: $loadedModelName (ptr=$nativePtr, threads=$threads)")
                     true
                 } else {
                     Log.e(TAG, "loadModelJNI returned null pointer")
