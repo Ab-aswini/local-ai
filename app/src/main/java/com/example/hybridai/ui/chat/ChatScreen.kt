@@ -28,6 +28,8 @@ import com.example.hybridai.ui.theme.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 // ── Data models ────────────────────────────────────────────────────────────
 
@@ -55,6 +57,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
     var copiedMessageIndex by remember { mutableStateOf(-1) }
 
     // Show scroll-to-bottom FAB when not near the bottom
