@@ -175,6 +175,10 @@ fun ChatScreen(
                 )
             )
 
+            // 🎙️ Voice input — fills text field; user can edit before sending
+            VoiceInputButton(onResult = { inputText = it })
+            )
+
             // Stop button while generating / Send button otherwise
             if (isLoading) {
                 FilledIconButton(
