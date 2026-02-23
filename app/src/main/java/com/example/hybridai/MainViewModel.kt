@@ -115,56 +115,79 @@ class MainViewModel(
                             return@collect
                         }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // Generation was cancelled by user — this is expected, don't rethrow
+                } catch (e: Exception) {
+                    // Any unexpected inference error — show it in the chat bubble
+                    _messages.update { list ->
+                        list.toMutableList().apply {
+                            if (isNotEmpty()) {
+                                this[lastIndex] = last().copy(content = "⚠️ Error: ${e.message}")
+                            }
+                        }
+                    }
                 } finally {
-                    val elapsed = (System.currentTimeMillis() - responseStart) / 1000f
-                    val tps = if (elapsed > 0) tokenCount / elapsed else 0f
-                    _tokensPerSecond.value = tps
-
-                    // Save performance stats if we're using the local model
-                    if (!taskOrchestrator.lastUsedCloud) {
+                    // Use NonCancellable so suspend calls here succeed even if job was cancelled
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                         try {
-                            val modelName = prefs.selectedModelName.first()
-                            if (modelName.isNotBlank() && tps > 0f) {
-                                prefs.saveModelPerformance(modelName, tps)
-                            }
-                        } catch (e: Exception) { /* Ignore */ }
-                    }
+                            val elapsed = (System.currentTimeMillis() - responseStart) / 1000f
+                            val tps = if (elapsed > 0) tokenCount / elapsed else 0f
+                            _tokensPerSecond.value = tps
 
-                    // Detect which role was used (update last message role from orchestrator)
-                    val role = if (taskOrchestrator.lastUsedCloud) "assistant_online" else "assistant_local"
-                    val finalMsg = _messages.value.last()
-                    if (role == "assistant_online") {
-                        _messages.update { list ->
-                            list.toMutableList().also {
-                                it[it.lastIndex] = finalMsg.copy(
-                                    role = MessageRole.ASSISTANT_ONLINE
-                                )
+                            // Save performance stats if we're using the local model
+                            if (!taskOrchestrator.lastUsedCloud) {
+                                try {
+                                    val modelName = prefs.selectedModelName.first()
+                                    if (modelName.isNotBlank() && tps > 0f) {
+                                        prefs.saveModelPerformance(modelName, tps)
+                                    }
+                                } catch (e: Exception) { /* Ignore */ }
                             }
-                        }
-                    }
 
-                    // Persist AI response to DB
-                    var insertedMessageId = -1L
-                    if (finalResponse.isNotBlank()) {
-                        insertedMessageId = repository.addMessage(currentSessionId, role, finalResponse, tps)
-                        
-                        // Update the UI model with the actual DB ID so TTS can track it
-                        val finalUiMsg = _messages.value.last()
-                        _messages.update { list ->
-                            list.toMutableList().also {
-                                it[it.lastIndex] = finalUiMsg.copy(id = insertedMessageId)
+                            // Safely get the last message
+                            val lastMsg = _messages.value.lastOrNull()
+
+                            // Detect which role was used & update bubble color
+                            val role = if (taskOrchestrator.lastUsedCloud) "assistant_online" else "assistant_local"
+                            if (lastMsg != null && role == "assistant_online") {
+                                _messages.update { list ->
+                                    list.toMutableList().also {
+                                        it[it.lastIndex] = lastMsg.copy(role = MessageRole.ASSISTANT_ONLINE)
+                                    }
+                                }
                             }
-                        }
-                    }
-                    _isLoading.value = false
 
-                    // Auto-speak if enabled
-                    if (insertedMessageId != -1L && finalResponse.isNotBlank()) {
-                        val ttsEnabled = prefs.ttsEnabled.first()
-                        if (ttsEnabled) {
-                            val speed = prefs.ttsSpeed.first()
-                            ttsManager.setSpeed(speed)
-                            ttsManager.speak(finalResponse, insertedMessageId)
+                            // Persist AI response to DB
+                            var insertedMessageId = -1L
+                            if (finalResponse.isNotBlank()) {
+                                insertedMessageId = repository.addMessage(currentSessionId, role, finalResponse, tps)
+                                
+                                // Update the UI model with the actual DB ID so TTS can track it
+                                val finalUiMsg = _messages.value.lastOrNull()
+                                if (finalUiMsg != null) {
+                                    _messages.update { list ->
+                                        list.toMutableList().also {
+                                            it[it.lastIndex] = finalUiMsg.copy(id = insertedMessageId)
+                                        }
+                                    }
+                                }
+                            }
+                            _isLoading.value = false
+
+                            // Auto-speak if enabled
+                            if (insertedMessageId != -1L && finalResponse.isNotBlank()) {
+                                try {
+                                    val ttsEnabled = prefs.ttsEnabled.first()
+                                    if (ttsEnabled) {
+                                        val speed = prefs.ttsSpeed.first()
+                                        ttsManager.setSpeed(speed)
+                                        ttsManager.speak(finalResponse, insertedMessageId)
+                                    }
+                                } catch (e: Exception) { /* TTS failures are non-fatal */ }
+                            }
+                        } catch (e: Exception) {
+                            // Safety net — ensure isLoading is always reset
+                            _isLoading.value = false
                         }
                     }
                 }
