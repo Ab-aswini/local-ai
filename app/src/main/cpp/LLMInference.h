@@ -1,5 +1,7 @@
 #pragma once
-#include "llama.h"   // only dependency — no common.h, no chat.h
+#include "llama.h"
+#include "chat.h"
+#include "common.h"
 #include <string>
 #include <vector>
 

@@ -25,6 +25,9 @@ android {
                 // llama.cpp requires C++17
                 cppFlags += "-std=c++17"
                 arguments += "-DANDROID_STL=c++_shared"
+                arguments += "-DLLAMA_BUILD_COMMON=ON"
+                arguments += "-DLLAMA_CURL=OFF"
+                arguments += "-DGGML_LLAMAFILE=OFF"
             }
         }
         ndk {

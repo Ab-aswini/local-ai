@@ -16,29 +16,7 @@
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-// Thin wrapper around llama_tokenize that returns a vector<llama_token>.
-static std::vector<llama_token> tokenize_prompt(
-        const llama_vocab* vocab, const std::string& text,
-        bool add_special, bool parse_special) {
-    int n = llama_tokenize(vocab, text.c_str(), (int)text.size(),
-                           nullptr, 0, add_special, parse_special);
-    if (n < 0) n = -n;
-    std::vector<llama_token> out(n);
-    llama_tokenize(vocab, text.c_str(), (int)text.size(),
-                   out.data(), n, add_special, parse_special);
-    return out;
-}
-
-// Wrapper around llama_token_to_piece that returns a std::string.
-static std::string token_to_piece(const llama_context* ctx, llama_token token) {
-    char buf[256];
-    const llama_vocab* vocab = llama_model_get_vocab(llama_get_model(ctx));
-    int len = llama_token_to_piece(vocab, token, buf, sizeof(buf), 0, true);
-    if (len < 0) return "";
-    return std::string(buf, len);
-}
+// ── Removed custom token logic since common API is restored ──
 
 // ── Load / Init ───────────────────────────────────────────────────────────────
 
@@ -109,29 +87,20 @@ void LLMInference::startCompletion(const char* query) {
         msgs.push_back({m.role.c_str(), m.content.c_str()});
     }
 
-    // Decide which template to use.
-    const char* tmpl = _chatTemplate.empty() ? nullptr : _chatTemplate.c_str();
-
-    // Measure required buffer size first (pass nullptr + 0).
-    int needed = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
-                                           true, nullptr, 0);
-    if (needed < 0) {
-        LOGe("llama_chat_apply_template() failed (sizing pass)");
-        throw std::runtime_error("llama_chat_apply_template() failed");
+    // apply the chat-template
+    std::vector<common_chat_msg> messages;
+    for (const auto& m : _chatHistory) {
+        messages.push_back({m.role, m.content});
     }
 
-    std::string prompt(needed, '\0');
-    int written = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
-                                            true, prompt.data(), needed);
-    if (written < 0) {
-        LOGe("llama_chat_apply_template() failed (write pass)");
-        throw std::runtime_error("llama_chat_apply_template() failed");
-    }
-    prompt.resize(written);
+    common_chat_templates_inputs inputs;
+    inputs.use_jinja = true;
+    inputs.messages  = messages;
+    auto templates   = common_chat_templates_init(_model, _chatTemplate.c_str());
+    std::string prompt = common_chat_templates_apply(templates.get(), inputs).prompt;
 
     const llama_vocab* vocab = llama_model_get_vocab(_model);
-    _promptTokens = tokenize_prompt(vocab, prompt, /*add_special=*/true,
-                                                   /*parse_special=*/true);
+    _promptTokens = common_tokenize(vocab, prompt, /*add_special=*/true, /*parse_special=*/true);
     LOGi("prompt tokenized: %d tokens", (int)_promptTokens.size());
 
     _batch          = new llama_batch();
@@ -179,7 +148,7 @@ std::string LLMInference::completionLoop() {
         return "[EOG]";
     }
 
-    std::string piece = token_to_piece(_ctx, _currToken);
+    std::string piece = common_token_to_piece(_ctx, _currToken, true);
     auto end = ggml_time_us();
     _responseGenerationTime += (end - start);
     _responseNumTokens      += 1;
