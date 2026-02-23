@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 
 enum class MessageRole { USER, ASSISTANT_LOCAL, ASSISTANT_ONLINE }
 data class ChatMessage(
+    val id: Long = 0L,
     val role: MessageRole,
     val content: String,
     val timestamp: Long = System.currentTimeMillis()
@@ -50,11 +51,17 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isLoading: Boolean,
     tokensPerSecond: Float,
+    contextUsage: Float,
     onSendMessage: (String) -> Unit,
+    onDeleteMessage: (Long) -> Unit,
     onClearChat: () -> Unit,
     onOpenSettings: () -> Unit = {},
     onStopGeneration: () -> Unit = {},
-    onRegenerateResponse: () -> Unit = {}
+    onRegenerateResponse: () -> Unit = {},
+    isSpeaking: Boolean = false,
+    speakingMessageId: Long? = null,
+    onSpeakMessage: (String, Long) -> Unit = { _, _ -> },
+    onStopSpeaking: () -> Unit = {}
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -100,7 +107,7 @@ fun ChatScreen(
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = if (isLoading) "Thinking…" else "🟢 Local  🔵 Cloud",
                         color = SecondaryAccent,
@@ -110,6 +117,15 @@ fun ChatScreen(
                         Text("⚡ ${"%.1f".format(tokensPerSecond)} tok/s",
                             color = LocalIndicator, fontSize = 11.sp)
                     }
+                }
+                if (contextUsage > 0f) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        progress = contextUsage,
+                        modifier = Modifier.width(100.dp).height(2.dp).clip(CircleShape),
+                        color = LocalIndicator,
+                        trackColor = SurfaceGray
+                    )
                 }
             }
             Row {
@@ -139,20 +155,50 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 12.dp)
             ) {
-                items(messages.size) { index ->
+                items(messages.size, key = { messages[it].id }) { index ->
                     val message = messages[index]
                     val isCopied = copiedMessageIndex == index
 
-                    ChatBubble(
-                        message = message,
-                        isCopied = isCopied,
-                        onCopy = {
-                            clipboard.setText(AnnotatedString(message.content))
-                            copiedMessageIndex = index
+                    val dismissState = rememberDismissState(
+                        confirmValueChange = { dismissValue ->
+                            if (dismissValue == DismissValue.DismissedToStart) {
+                                onDeleteMessage(message.id)
+                                true
+                            } else false
+                        }
+                    )
+
+                    SwipeToDismiss(
+                        state = dismissState,
+                        directions = setOf(DismissDirection.EndToStart),
+                        background = {
+                            val color = if (dismissState.dismissDirection == DismissDirection.EndToStart) 
+                                MaterialTheme.colorScheme.errorContainer else Color.Transparent
+                            Box(
+                                Modifier.fillMaxSize().background(color, RoundedCornerShape(12.dp)).padding(horizontal = 20.dp),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
+                            }
                         },
-                        onRegenerate = if (index == messages.lastIndex && message.role != MessageRole.USER) {
-                            { onRegenerateResponse() }
-                        } else null
+                        dismissContent = {
+                        ChatBubble(
+                            message = message,
+                            isCopied = isCopied,
+                            isCurrentlySpeaking = isSpeaking && speakingMessageId == message.id,
+                            onCopy = {
+                                clipboard.setText(AnnotatedString(message.content))
+                                copiedMessageIndex = index
+                            },
+                            onRegenerate = if (index == messages.lastIndex && message.role != MessageRole.USER) {
+                                { onRegenerateResponse() }
+                            } else null,
+                            onSpeak = {
+                                onSpeakMessage(message.content, message.id)
+                            },
+                            onStopSpeaking = onStopSpeaking
+                        )
+                    }
                     )
                 }
 
@@ -286,8 +332,11 @@ fun ChatScreen(
 fun ChatBubble(
     message: ChatMessage,
     isCopied: Boolean,
+    isCurrentlySpeaking: Boolean,
     onCopy: () -> Unit,
-    onRegenerate: (() -> Unit)?
+    onRegenerate: (() -> Unit)?,
+    onSpeak: () -> Unit,
+    onStopSpeaking: () -> Unit
 ) {
     val isUser = message.role == MessageRole.USER
     val bubbleColor = when (message.role) {
@@ -394,6 +443,25 @@ fun ChatBubble(
                         Spacer(Modifier.width(4.dp))
                         Text("Regenerate", fontSize = 11.sp, color = SecondaryAccent)
                     }
+                }
+
+                // Play / Stop speaking button
+                TextButton(
+                    onClick = if (isCurrentlySpeaking) onStopSpeaking else onSpeak,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(
+                        if (isCurrentlySpeaking) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = if (isCurrentlySpeaking) "Stop speaking" else "Read aloud",
+                        tint = if (isCurrentlySpeaking) Color.Red else SecondaryAccent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (isCurrentlySpeaking) "Stop" else "Listen",
+                        fontSize = 11.sp,
+                        color = if (isCurrentlySpeaking) Color.Red else SecondaryAccent
+                    )
                 }
             }
         }

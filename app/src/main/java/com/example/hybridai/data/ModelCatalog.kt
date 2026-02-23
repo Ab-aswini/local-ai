@@ -8,6 +8,7 @@ data class ModelInfo(
     val ramRequired: String,
     val downloadUrl: String,
     val filename: String,
+    val sha256: String = "",
     val warningLabel: String = ""
 )
 

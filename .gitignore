@@ -25,6 +25,7 @@ local.properties
 # Native build
 *.o
 *.so
+app/.cxx/
 
 # macOS junk
 .DS_Store

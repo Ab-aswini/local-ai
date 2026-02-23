@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.Flow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.hybridai.data.ModelCatalog
 import com.example.hybridai.data.ModelInfo
@@ -36,7 +37,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel()
 ) {
-    val tabs = listOf("🔑 Cloud AI", "🧠 Local Models", "🎨 Theme", "🤖 Persona")
+    val tabs = listOf("🔑 Cloud AI", "🧠 Models", "🎨 Theme", "🤖 Persona", "🎛️ Inference", "🗣️ Voice")
     var selectedTab by remember { mutableIntStateOf(0) }
 
     Column(
@@ -92,6 +93,8 @@ fun SettingsScreen(
             1 -> LocalModelsTab(settingsViewModel)
             2 -> ThemeTab(settingsViewModel)
             3 -> PersonaTab(settingsViewModel)
+            4 -> InferenceTab(settingsViewModel)
+            5 -> VoiceTab(settingsViewModel)
         }
     }
 }
@@ -194,11 +197,12 @@ fun LocalModelsTab(vm: SettingsViewModel) {
     // ── Storage info ─────────────────────────────────────────────────────
     val freeStorageGb = remember {
         try {
-            val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+            val stat = android.os.StatFs(android.os.Environment.getExternalStorageDirectory().path)
             (stat.availableBlocksLong * stat.blockSizeLong) / (1024f * 1024 * 1024)
         } catch (e: Exception) { -1f }
     }
-    val lowStorage = freeStorageGb in 0f..1f
+    val lowStorage = freeStorageGb in 0f..2f
+    val storageUsedGb by vm.storageUsedGb.collectAsState()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -217,9 +221,9 @@ fun LocalModelsTab(vm: SettingsViewModel) {
                             tint = if (lowStorage) Color(0xFFFFB300) else SecondaryAccent,
                             modifier = Modifier.size(14.dp))
                         Text(
-                            "${"%.1f".format(freeStorageGb)} GB free on device" +
-                                if (lowStorage) " — ⚠️ Low storage" else "",
-                            color = if (lowStorage) Color(0xFFFFB300) else SecondaryAccent,
+                            "Models: ${"%.1f".format(storageUsedGb)} GB used. Free space: ${"%.1f".format(freeStorageGb)} GB" +
+                                if (lowStorage) " — ⚠️ Low storage (< 2GB)" else "",
+                            color = if (lowStorage) Color.Red else SecondaryAccent,
                             fontSize = 12.sp
                         )
                     }
@@ -232,7 +236,9 @@ fun LocalModelsTab(vm: SettingsViewModel) {
                 isActive     = activeModelName == model.name,
                 isDownloaded = vm.isDownloaded(model),
                 progress     = downloadProgress[model.id],
+                performanceFlow = vm.getModelPerformance(model.name),
                 onDownload   = { vm.downloadModel(model) },
+                onCancelDownload = { vm.cancelDownload(model) },
                 onActivate   = { vm.activateModel(model) },
                 onDelete     = { vm.deleteModel(model) }
             )
@@ -247,7 +253,9 @@ fun ModelCard(
     isActive: Boolean,
     isDownloaded: Boolean,
     progress: Float?,
+    performanceFlow: Flow<Float>,
     onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onActivate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -285,9 +293,13 @@ fun ModelCard(
                 Spacer(Modifier.height(4.dp))
                 Text(model.description, color = SecondaryAccent, fontSize = 12.sp, lineHeight = 18.sp)
                 Spacer(Modifier.height(8.dp))
+                val performance by performanceFlow.collectAsState(initial = 0f)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Chip("💾 ${model.sizeLabel}")
                     Chip("🧠 ${model.ramRequired}")
+                    if (performance > 0f) {
+                        Chip("⚡ %.1f tok/s".format(performance))
+                    }
                 }
             }
         }
@@ -303,7 +315,16 @@ fun ModelCard(
                 trackColor = SurfaceGray
             )
             Spacer(Modifier.height(8.dp))
-            Text("Downloading... ${((progress ?: 0f) * 100).toInt()}%", color = SecondaryAccent, fontSize = 12.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (progress == 0.999f) "Verifying checksum..." else "Downloading... ${((progress ?: 0f) * 100).toInt()}%", 
+                    color = SecondaryAccent, 
+                    fontSize = 12.sp
+                )
+                TextButton(onClick = onCancelDownload, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
+                    Text("Cancel", color = Color.Red, fontSize = 12.sp)
+                }
+            }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 when {
@@ -492,6 +513,185 @@ fun PersonaTab(vm: SettingsViewModel) {
                     )
                 }
             }
+        }
+    }
+}
+
+// ─── Tab 5: Inference Controls ─────────────────────────────────────────────────────────
+
+@Composable
+fun InferenceTab(vm: SettingsViewModel) {
+    val temp by vm.inferenceTemperature.collectAsState()
+    val ctxSize by vm.inferenceContextSize.collectAsState()
+    val maxTokens by vm.inferenceMaxTokens.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        // Temperature Slider
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Temperature", color = PrimaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(String.format("%.1f", temp), color = OnlineIndicator, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+            Text(
+                "Lower is factual/robotic, higher is creative/random.", 
+                color = SecondaryAccent, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+            )
+            Slider(
+                value = temp,
+                onValueChange = { vm.saveInferenceTemperature(it) },
+                valueRange = 0f..2f,
+                steps = 19, // (2.0 - 0.0) / 0.1 - 1
+                colors = SliderDefaults.colors(
+                    thumbColor = OnlineIndicator,
+                    activeTrackColor = OnlineIndicator,
+                    inactiveTrackColor = SurfaceGray
+                )
+            )
+        }
+
+        Divider(color = SurfaceGray)
+
+        // Context Size
+        Column {
+            Text("Context Size (Tokens)", color = PrimaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(
+                "Memory window length. Larger uses more RAM.\nChanges apply on next model reload.",
+                color = SecondaryAccent, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+            )
+            val ctxOptions = listOf(512, 1024, 2048, 4096)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                ctxOptions.forEach { size ->
+                    val isSelected = ctxSize == size
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) OnlineIndicator else DarkGray)
+                            .clickable { vm.saveInferenceContextSize(size) }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            size.toString(),
+                            color = if (isSelected) TrueBlack else PrimaryAccent,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        Divider(color = SurfaceGray)
+
+        // Max Tokens
+        Column {
+            Text("Max Answer Length (Tokens)", color = PrimaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(
+                "Force short replies or allow long-form generation.",
+                color = SecondaryAccent, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+            )
+            val lenOptions = listOf(256, 512, 1024, -1)
+            val lenLabels = listOf("Short", "Med", "Long", "Max")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                lenOptions.forEachIndexed { i, size ->
+                    val isSelected = maxTokens == size
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) OnlineIndicator else DarkGray)
+                            .clickable { vm.saveInferenceMaxTokens(size) }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            lenLabels[i],
+                            color = if (isSelected) TrueBlack else PrimaryAccent,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Tab 6: Voice Controls ─────────────────────────────────────────────────────────────
+
+@Composable
+fun VoiceTab(vm: SettingsViewModel) {
+    val ttsEnabled by vm.ttsEnabled.collectAsState()
+    val ttsSpeed by vm.ttsSpeed.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        // Auto-Speak Toggle
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Auto-Speak Responses", color = PrimaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(
+                    "Automatically read aloud every AI reply as it streams in.",
+                    color = SecondaryAccent, fontSize = 12.sp, lineHeight = 16.sp
+                )
+            }
+            Switch(
+                checked = ttsEnabled,
+                onCheckedChange = { vm.saveTtsEnabled(it) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = TrueBlack,
+                    checkedTrackColor = OnlineIndicator,
+                    uncheckedThumbColor = SecondaryAccent,
+                    uncheckedTrackColor = DarkGray
+                )
+            )
+        }
+
+        Divider(color = SurfaceGray)
+
+        // Voice Speed Slider
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Voice Speed", color = PrimaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(String.format("%.1fx", ttsSpeed), color = OnlineIndicator, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+            Text(
+                "Adjust how fast the AI speaks.", 
+                color = SecondaryAccent, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+            )
+            Slider(
+                value = ttsSpeed,
+                onValueChange = { vm.saveTtsSpeed(it) },
+                valueRange = 0.5f..2.0f,
+                steps = 14, // (2.0 - 0.5) / 0.1 - 1
+                colors = SliderDefaults.colors(
+                    thumbColor = OnlineIndicator,
+                    activeTrackColor = OnlineIndicator,
+                    inactiveTrackColor = SurfaceGray
+                )
+            )
         }
     }
 }

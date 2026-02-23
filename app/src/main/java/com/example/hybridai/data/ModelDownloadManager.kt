@@ -10,7 +10,11 @@ import android.os.Environment
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * Manages background downloads of GGUF model files using Android's DownloadManager.
@@ -22,12 +26,13 @@ class ModelDownloadManager(private val context: Context) {
         private const val TAG = "ModelDownloadManager"
     }
 
-    // Progress: modelId → 0.0f to 1.0f (-1 = error, 1.0 = done)
+    // Progress: modelId → 0.0f to 1.0f (-1 = error, 1.0 = done, 0.999f = verifying)
     private val _downloadProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
     val downloadProgress: StateFlow<Map<String, Float>> = _downloadProgress
 
     private val activeDownloads = mutableMapOf<Long, ModelInfo>() // downloadId → ModelInfo
     private val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    private val scope = CoroutineScope(Dispatchers.IO)
 
     /**
      * Start downloading a model. Saves to app's external files directory.
@@ -82,25 +87,57 @@ class ModelDownloadManager(private val context: Context) {
                             updateProgress(model.id, progress.coerceIn(0.01f, 0.99f))
                         }
                         DownloadManager.STATUS_SUCCESSFUL -> {
-                            // Validate it's actually a GGUF file (not HTML error page / ZIP)
-                            val file = getModelFile(model.filename)
-                            val isGguf = try {
-                                file.inputStream().use { s ->
-                                    val bytes = ByteArray(4)
-                                    s.read(bytes)
-                                    String(bytes) == "GGUF"
-                                }
-                            } catch (e: Exception) { false }
-
-                            if (isGguf) {
-                                updateProgress(model.id, 1.0f)
-                                Log.i(TAG, "✅ Valid GGUF downloaded: ${model.name} (${file.length() / 1_000_000}MB)")
-                            } else {
-                                file.delete() // Remove the bad file
-                                updateProgress(model.id, -1f)
-                                Log.e(TAG, "❌ Downloaded file is NOT a GGUF (got HTML or ZIP). Deleted. Check URL.")
-                            }
                             idsToRemove.add(downloadId)
+                            updateProgress(model.id, 0.999f) // Verifying state
+                            
+                            scope.launch {
+                                // Validate it's actually a GGUF file (not HTML error page / ZIP)
+                                val file = getModelFile(model.filename)
+                                val isGguf = try {
+                                    file.inputStream().use { s ->
+                                        val bytes = ByteArray(4)
+                                        s.read(bytes)
+                                        String(bytes) == "GGUF"
+                                    }
+                                } catch (e: Exception) { false }
+
+                                if (!isGguf) {
+                                    file.delete() // Remove the bad file
+                                    updateProgress(model.id, -1f)
+                                    Log.e(TAG, "❌ Downloaded file is NOT a GGUF (got HTML or ZIP). Deleted. Check URL.")
+                                    return@launch
+                                }
+                                
+                                // Verify SHA256 Checksum if provided
+                                if (model.sha256.isNotEmpty()) {
+                                    Log.i(TAG, "Verifying SHA256 checksum for ${model.name}...")
+                                    try {
+                                        val digest = MessageDigest.getInstance("SHA-256")
+                                        file.inputStream().use { fis ->
+                                            val buffer = ByteArray(8192)
+                                            var bytesRead: Int
+                                            while (fis.read(buffer).also { bytesRead = it } != -1) {
+                                                digest.update(buffer, 0, bytesRead)
+                                            }
+                                        }
+                                        val hash = digest.digest().joinToString("") { "%02x".format(it) }
+                                        if (hash.equals(model.sha256, ignoreCase = true)) {
+                                            Log.i(TAG, "✅ Checksum matched for ${model.name}")
+                                            updateProgress(model.id, 1.0f)
+                                        } else {
+                                            Log.e(TAG, "❌ Checksum mismatch for ${model.name}. Expected ${model.sha256}, got $hash")
+                                            file.delete()
+                                            updateProgress(model.id, -1f)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Error calculating checksum", e)
+                                        updateProgress(model.id, -1f)
+                                    }
+                                } else {
+                                    updateProgress(model.id, 1.0f)
+                                    Log.i(TAG, "✅ Valid GGUF downloaded (No Checksum): ${model.name} (${file.length() / 1_000_000}MB)")
+                                }
+                            }
                         }
                         DownloadManager.STATUS_FAILED -> {
                             updateProgress(model.id, -1f)
@@ -127,6 +164,23 @@ class ModelDownloadManager(private val context: Context) {
      */
     fun isModelDownloaded(model: ModelInfo): Boolean {
         return getModelFile(model.filename).exists()
+    }
+
+    /**
+     * Cancel an active download.
+     */
+    fun cancelDownload(model: ModelInfo) {
+        val downloadId = activeDownloads.entries.firstOrNull { it.value.id == model.id }?.key
+        if (downloadId != null) {
+            downloadManager.remove(downloadId)
+            activeDownloads.remove(downloadId)
+        }
+        val file = getModelFile(model.filename)
+        if (file.exists()) { file.delete() }
+        
+        val current = _downloadProgress.value.toMutableMap()
+        current.remove(model.id)
+        _downloadProgress.value = current
     }
 
     /**

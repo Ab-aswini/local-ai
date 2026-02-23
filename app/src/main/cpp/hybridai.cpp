@@ -94,9 +94,23 @@ Java_com_example_hybridai_local_LlamaCppEngine_closeModelJNI(
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
-Java_com_example_hybridai_local_LlamaCppEngine_getSpeedJNI(
-        JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_com_example_hybridai_local_LlamaCppEngine_getSpeedJNI(JNIEnv* env, jobject thiz, jlong model_ptr) {
+    auto inference = reinterpret_cast<LLMInference*>(model_ptr);
+    if (!inference) return 0.0f;
 
-    auto* llm = reinterpret_cast<LLMInference*>(modelPtr);
-    return llm->getResponseGenerationTime();
+    float t_sec = inference->getResponseGenerationTime() / 1000000.0f;
+    if (t_sec > 0) {
+        // Assume getResponseNumTokens() is internally tracked, but here we just return the speed if we tracked it or 0
+        // Currently there is no _responseNumTokens getter, so we return 0 unless added later. 
+        // We will just expose context usage here.
+        return 0.0f;
+    }
+    return 0.0f;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_hybridai_local_LlamaCppEngine_getContextUsageJNI(JNIEnv* env, jobject thiz, jlong model_ptr) {
+    auto inference = reinterpret_cast<LLMInference*>(model_ptr);
+    if (!inference) return 0;
+    return inference->getContextSizeUsed();
 }

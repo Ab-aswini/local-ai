@@ -52,16 +52,25 @@ fun AppNavigation(mainViewModel: MainViewModel) {
             val messages        by mainViewModel.messages.collectAsState()
             val isLoading       by mainViewModel.isLoading.collectAsState()
             val tokensPerSecond by mainViewModel.tokensPerSecond.collectAsState()
+            val contextUsage    by mainViewModel.contextUsage.collectAsState()
+            val isSpeaking      by mainViewModel.isSpeaking.collectAsState()
+            val speakingMsgId   by mainViewModel.currentlySpeakingMessageId.collectAsState()
 
             ChatScreen(
                 messages             = messages,
                 isLoading            = isLoading,
                 tokensPerSecond      = tokensPerSecond,
+                contextUsage         = contextUsage,
                 onSendMessage        = { prompt -> mainViewModel.sendMessage(prompt) },
+                onDeleteMessage      = { id -> mainViewModel.deleteMessage(id) },
                 onClearChat          = { mainViewModel.clearChat() },
                 onOpenSettings       = { navController.navigate(Routes.SETTINGS) },
                 onStopGeneration     = { mainViewModel.stopGeneration() },
-                onRegenerateResponse = { mainViewModel.regenerateLastResponse() }
+                onRegenerateResponse = { mainViewModel.regenerateLastResponse() },
+                isSpeaking           = isSpeaking,
+                speakingMessageId    = speakingMsgId,
+                onSpeakMessage       = { text, id -> mainViewModel.speakMessage(text, id) },
+                onStopSpeaking       = { mainViewModel.stopSpeaking() }
             )
         }
 

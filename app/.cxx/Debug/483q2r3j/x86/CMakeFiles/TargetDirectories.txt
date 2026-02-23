@@ -1,3 +1,0 @@
-D:/Local LLM- android/HybridAIAssistant/app/.cxx/Debug/483q2r3j/x86/CMakeFiles/hybridai-llama.dir
-D:/Local LLM- android/HybridAIAssistant/app/.cxx/Debug/483q2r3j/x86/CMakeFiles/edit_cache.dir
-D:/Local LLM- android/HybridAIAssistant/app/.cxx/Debug/483q2r3j/x86/CMakeFiles/rebuild_cache.dir

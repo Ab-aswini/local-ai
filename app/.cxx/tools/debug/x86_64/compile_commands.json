@@ -1,7 +1,0 @@
-[
-{
-  "directory": "D:/Local LLM- android/HybridAIAssistant/app/.cxx/Debug/5g4yn1e1/x86_64",
-  "command": "C:\\Users\\aswin\\AppData\\Local\\Android\\Sdk\\ndk\\27.0.12077973\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=x86_64-none-linux-android26 --sysroot=C:/Users/aswin/AppData/Local/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/windows-x86_64/sysroot -DGGML_USE_CPU -Dhybridai_llama_EXPORTS -I\"D:/Local LLM- android/HybridAIAssistant/app/src/main/cpp\" -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++11 -Wall -Wextra -fno-limit-debug-info  -fPIC -o CMakeFiles\\hybridai-llama.dir\\native-lib.cpp.o -c \"D:\\Local LLM- android\\HybridAIAssistant\\app\\src\\main\\cpp\\native-lib.cpp\"",
-  "file": "D:\\Local LLM- android\\HybridAIAssistant\\app\\src\\main\\cpp\\native-lib.cpp"
-}
-]

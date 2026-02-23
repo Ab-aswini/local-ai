@@ -23,13 +23,8 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
             "Keep responses concise — under 3 sentences for simple questions. " +
             "You have no internet access."
 
-        // Temperature: 0.8 (creative but coherent)
         // minP: 0.05 (filters low-probability tokens)
-        // Context: 2048 tokens (good balance for 4GB RAM devices)
-        private const val TEMPERATURE   = 0.8f
         private const val MIN_P         = 0.05f
-        private const val CONTEXT_SIZE  = 2048L
-        private const val NUM_THREADS   = 4
 
         init {
             System.loadLibrary("hybridai")
@@ -46,6 +41,16 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
      * Uses mmap so large models don't consume all RAM upfront.
      */
     override suspend fun loadModel(modelPath: String, useMmap: Boolean): Boolean {
+        // Kept for interface compatibility, defaults to 0.8 temp / 2048 ctx
+        return loadModel(modelPath, 0.8f, 2048L, useMmap)
+    }
+
+    suspend fun loadModel(
+        modelPath: String,
+        temperature: Float,
+        contextSize: Long,
+        useMmap: Boolean
+    ): Boolean {
         return withContext(Dispatchers.IO) {
             val file = File(modelPath)
             if (!file.exists()) {
@@ -88,9 +93,9 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
                 nativePtr = loadModelJNI(
                     modelPath   = modelPath,
                     minP        = MIN_P,
-                    temperature = TEMPERATURE,
+                    temperature = temperature,
                     storeChats  = true,
-                    contextSize = CONTEXT_SIZE,
+                    contextSize = contextSize,
                     chatTemplate = "",    // use template embedded in the GGUF
                     nThreads    = threads,
                     useMmap     = useMmap,
@@ -163,6 +168,11 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
         }
     }
 
+    /** Returns current context window tokens used via JNI */
+    fun getContextUsage(): Int {
+        return if (nativePtr != 0L) getContextUsageJNI(nativePtr) else 0
+    }
+
     // ── JNI declarations (implemented in hybridai.cpp) ────────────────────
 
     private external fun loadModelJNI(
@@ -188,4 +198,6 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
     private external fun closeModelJNI(modelPtr: Long)
 
     private external fun getSpeedJNI(modelPtr: Long): Float
+
+    private external fun getContextUsageJNI(modelPtr: Long): Int
 }

@@ -11,12 +11,18 @@ import com.example.hybridai.data.db.ChatRepository
 import com.example.hybridai.ui.chat.ChatMessage
 import com.example.hybridai.ui.chat.MessageRole
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+import com.example.hybridai.core.TextToSpeechManager
+import com.example.hybridai.data.AppPreferences
+
 class MainViewModel(
     private val taskOrchestrator: TaskOrchestrator,
-    private val repository: ChatRepository
+    private val repository: ChatRepository,
+    private val prefs: AppPreferences,
+    private val ttsManager: TextToSpeechManager
 ) : ViewModel() {
 
     // ── UI State ─────────────────────────────────────────────────────────
@@ -32,6 +38,14 @@ class MainViewModel(
     /** Speed of last inference run (tokens/sec) */
     private val _tokensPerSecond = MutableStateFlow(0f)
     val tokensPerSecond: StateFlow<Float> = _tokensPerSecond.asStateFlow()
+
+    /** Tracks context window usage when using the local engine */
+    private val _contextUsage = MutableStateFlow(0f)
+    val contextUsage: StateFlow<Float> = _contextUsage.asStateFlow()
+
+    /** TTS States */
+    val isSpeaking: StateFlow<Boolean> = ttsManager.isSpeaking
+    val currentlySpeakingMessageId: StateFlow<Long?> = ttsManager.currentlySpeakingMessageId
 
     /** Active session ID — created on first use */
     private var currentSessionId: Long = -1L
@@ -72,10 +86,10 @@ class MainViewModel(
             repository.addMessage(currentSessionId, "user", prompt)
 
             // Add user bubble to UI
-            _messages.update { it + ChatMessage(MessageRole.USER, prompt) }
+            _messages.update { it + ChatMessage(role = MessageRole.USER, content = prompt) }
 
             // Add empty AI bubble (will be filled as tokens arrive)
-            _messages.update { it + ChatMessage(MessageRole.ASSISTANT_LOCAL, "") }
+            _messages.update { it + ChatMessage(role = MessageRole.ASSISTANT_LOCAL, content = "") }
             _isLoading.value = true
 
             val responseStart = System.currentTimeMillis()
@@ -84,6 +98,8 @@ class MainViewModel(
 
             generationJob = launch {
                 try {
+                    val maxTokens = prefs.inferenceMaxTokens.first()
+                    
                     taskOrchestrator.processInput(prompt).collect { token ->
                         finalResponse += token
                         tokenCount++
@@ -92,11 +108,27 @@ class MainViewModel(
                                 it[it.lastIndex] = it.last().copy(content = finalResponse)
                             }
                         }
+                        
+                        // Force stop early if maxTokens is set and we've reached it
+                        if (maxTokens > 0 && tokenCount >= maxTokens) {
+                            stopGeneration()
+                            return@collect
+                        }
                     }
                 } finally {
                     val elapsed = (System.currentTimeMillis() - responseStart) / 1000f
                     val tps = if (elapsed > 0) tokenCount / elapsed else 0f
                     _tokensPerSecond.value = tps
+
+                    // Save performance stats if we're using the local model
+                    if (!taskOrchestrator.lastUsedCloud) {
+                        try {
+                            val modelName = prefs.selectedModelName.first()
+                            if (modelName.isNotBlank() && tps > 0f) {
+                                prefs.saveModelPerformance(modelName, tps)
+                            }
+                        } catch (e: Exception) { /* Ignore */ }
+                    }
 
                     // Detect which role was used (update last message role from orchestrator)
                     val role = if (taskOrchestrator.lastUsedCloud) "assistant_online" else "assistant_local"
@@ -112,10 +144,29 @@ class MainViewModel(
                     }
 
                     // Persist AI response to DB
+                    var insertedMessageId = -1L
                     if (finalResponse.isNotBlank()) {
-                        repository.addMessage(currentSessionId, role, finalResponse, tps)
+                        insertedMessageId = repository.addMessage(currentSessionId, role, finalResponse, tps)
+                        
+                        // Update the UI model with the actual DB ID so TTS can track it
+                        val finalUiMsg = _messages.value.last()
+                        _messages.update { list ->
+                            list.toMutableList().also {
+                                it[it.lastIndex] = finalUiMsg.copy(id = insertedMessageId)
+                            }
+                        }
                     }
                     _isLoading.value = false
+
+                    // Auto-speak if enabled
+                    if (insertedMessageId != -1L && finalResponse.isNotBlank()) {
+                        val ttsEnabled = prefs.ttsEnabled.first()
+                        if (ttsEnabled) {
+                            val speed = prefs.ttsSpeed.first()
+                            ttsManager.setSpeed(speed)
+                            ttsManager.speak(finalResponse, insertedMessageId)
+                        }
+                    }
                 }
             }
         }
@@ -145,30 +196,66 @@ class MainViewModel(
             }
             _messages.value = emptyList()
             _tokensPerSecond.value = 0f
+            _contextUsage.value = 0f
         }
+    }
+
+    /** Deletes a specific message by ID and removes it from the UI */
+    fun deleteMessage(msgId: Long) {
+        viewModelScope.launch {
+            if (currentSessionId != -1L) {
+                repository.deleteMessage(msgId)
+            }
+            if (ttsManager.currentlySpeakingMessageId.value == msgId) {
+                ttsManager.stop()
+            }
+            // To simplify UI updates since our ChatMessage currently doesn't hold the DB ID, 
+            // we reload the session to get the latest messages matching the DB state.
+            if (currentSessionId != -1L) {
+                loadSession(currentSessionId)
+            }
+        }
+    }
+
+    // ── TTS Controls ──────────────────────────────────────────────────────
+    
+    fun speakMessage(text: String, messageId: Long) {
+        viewModelScope.launch {
+            val speed = prefs.ttsSpeed.first()
+            ttsManager.setSpeed(speed)
+            ttsManager.speak(text, messageId)
+        }
+    }
+
+    fun stopSpeaking() {
+        ttsManager.stop()
     }
 
     // ── Factory ───────────────────────────────────────────────────────────
 
     class Factory(
         private val context: Context,
-        private val taskOrchestrator: TaskOrchestrator
+        private val taskOrchestrator: TaskOrchestrator,
+        private val ttsManager: TextToSpeechManager
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val db = ChatDatabase.getInstance(context)
             val repo = ChatRepository(db.sessionDao(), db.messageDao())
+            val prefs = AppPreferences(context)
             @Suppress("UNCHECKED_CAST")
-            return MainViewModel(taskOrchestrator, repo) as T
+            return MainViewModel(taskOrchestrator, repo, prefs, ttsManager) as T
         }
     }
 }
 
 // Extension: convert DB entity to UI model
 private fun ChatMessageEntity.toChatMessage() = ChatMessage(
-    role = when (role) {
-        "user" -> MessageRole.USER
+    id = this.id,
+    role = when (this.role) {
         "assistant_online" -> MessageRole.ASSISTANT_ONLINE
-        else -> MessageRole.ASSISTANT_LOCAL
+        "assistant_local"  -> MessageRole.ASSISTANT_LOCAL
+        else               -> MessageRole.USER
     },
-    content = content
+    content = this.content,
+    timestamp = this.timestamp
 )

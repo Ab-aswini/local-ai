@@ -6,11 +6,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import com.example.hybridai.core.TaskOrchestrator
+import com.example.hybridai.core.TextToSpeechManager
 import com.example.hybridai.data.AppPreferences
 import com.example.hybridai.local.LocalInferenceManager
 import com.example.hybridai.remote.OnlineApiClient
 import com.example.hybridai.ui.AppNavigation
 import com.example.hybridai.ui.theme.HybridAITheme
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -19,9 +22,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var localInferenceManager: LocalInferenceManager
     private lateinit var onlineApiClient: OnlineApiClient
     private lateinit var taskOrchestrator: TaskOrchestrator
+    private lateinit var ttsManager: TextToSpeechManager
 
     private val viewModel: MainViewModel by viewModels {
-        MainViewModel.Factory(applicationContext, taskOrchestrator)
+        MainViewModel.Factory(applicationContext, taskOrchestrator, ttsManager)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,9 +35,21 @@ class MainActivity : ComponentActivity() {
         onlineApiClient = OnlineApiClient(appPreferences)
         localInferenceManager = LocalInferenceManager(applicationContext)
         taskOrchestrator = TaskOrchestrator(localInferenceManager, onlineApiClient)
+        ttsManager = TextToSpeechManager(applicationContext)
 
+        // Combine path, temp, and context size to trigger a unified reload
         lifecycleScope.launch {
-            localInferenceManager.initialize()
+            combine(
+                appPreferences.selectedModelPath,
+                appPreferences.inferenceTemperature,
+                appPreferences.inferenceContextSize
+            ) { path, temp, ctx ->
+                Triple(path, temp, ctx)
+            }
+            .distinctUntilChanged()
+            .collect {
+                localInferenceManager.reloadModel()
+            }
         }
 
         // Start a new chat session when app opens
@@ -49,5 +65,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         localInferenceManager.shutdown()
+        if (::ttsManager.isInitialized) {
+            ttsManager.shutdown()
+        }
     }
 }

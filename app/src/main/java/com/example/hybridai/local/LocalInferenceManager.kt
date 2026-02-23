@@ -22,16 +22,19 @@ class LocalInferenceManager(private val context: Context) {
     private var initialized = false
 
     /**
-     * Called on app start. Reads the saved model path from DataStore and loads it.
-     * If no model is selected yet, engine is ready but will show guidance when queried.
+     * Unloads any active model and loads the current one from preferences.
+     * Hot-swapping uses this without restarting the app.
      */
-    suspend fun initialize() {
+    suspend fun reloadModel() {
+        llamaEngine.unload()
         val modelPath = prefs.selectedModelPath.first()
         val modelName = prefs.selectedModelName.first()
+        val temp = prefs.inferenceTemperature.first()
+        val ctxSize = prefs.inferenceContextSize.first()
 
         if (modelPath.isNotBlank()) {
-            Log.i(TAG, "Loading saved model: $modelName from $modelPath")
-            val loaded = llamaEngine.loadModel(modelPath, useMmap = true)
+            Log.i(TAG, "Loading saved model: $modelName from $modelPath (temp=$temp, ctx=$ctxSize)")
+            val loaded = llamaEngine.loadModel(modelPath, temp, ctxSize.toLong(), useMmap = true)
             if (loaded) {
                 Log.i(TAG, "✅ Model loaded successfully: $modelName")
             } else {
@@ -44,13 +47,7 @@ class LocalInferenceManager(private val context: Context) {
         initialized = true
     }
 
-    /**
-     * Called after a model is downloaded and activated — reloads it immediately.
-     */
-    suspend fun reloadModel() {
-        llamaEngine.unload()
-        initialize()
-    }
+
 
     fun generateResponse(prompt: String): Flow<String> {
         if (!initialized) {

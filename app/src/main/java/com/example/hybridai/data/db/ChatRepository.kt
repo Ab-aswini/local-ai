@@ -59,4 +59,8 @@ class ChatRepository(
         messageDao.deleteMessagesForSession(sessionId)
         sessionDao.updateTitle(sessionId, "New Chat")
     }
+
+    suspend fun deleteMessage(messageId: Long) {
+        messageDao.deleteMessage(messageId)
+    }
 }
