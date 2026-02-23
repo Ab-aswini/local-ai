@@ -183,9 +183,9 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
         }
     }
 
+    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
     override fun unload() {
         // Launch a coroutine to acquire the mutex without blocking the main thread
-        kotlinx.coroutines.DelicateCoroutinesApi::class
         kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
             engineMutex.withLock {
                 if (nativePtr != 0L) {
