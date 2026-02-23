@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -36,6 +38,9 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
     private var nativePtr: Long = 0L
     private var loadedModelName: String = ""
 
+    /** Guards concurrent access to native object */
+    private val engineMutex = kotlinx.coroutines.sync.Mutex()
+
     /**
      * Loads the GGUF model into memory via JNI.
      * Uses mmap so large models don't consume all RAM upfront.
@@ -50,7 +55,7 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
         temperature: Float,
         contextSize: Long,
         useMmap: Boolean
-    ): Boolean {
+    ): Boolean = engineMutex.withLock {
         return withContext(Dispatchers.IO) {
             val file = File(modelPath)
             if (!file.exists()) {
@@ -90,6 +95,13 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
             val threads  = (numCores / 2).coerceIn(2, 6) // use half cores, capped 2–6
 
             try {
+                // If a model is already loaded, close it first
+                if (nativePtr != 0L) {
+                    closeModelJNI(nativePtr)
+                    nativePtr = 0L
+                    loadedModelName = ""
+                }
+
                 nativePtr = loadModelJNI(
                     modelPath   = modelPath,
                     minP        = MIN_P,
@@ -122,49 +134,67 @@ class LlamaCppEngine(private val context: Context) : InferenceEngine {
      * Each emission is a token piece (word fragment) from the model.
      */
     override fun generateResponse(prompt: String): Flow<String> = flow {
-        if (nativePtr == 0L) {
-            emit("🟡 No local model loaded.\n\n")
-            emit("Go to ⚙️ Settings → 🧠 Local Models → download a model → tap 'Use this model'.")
-            return@flow
-        }
-
-        try {
-            Log.d(TAG, "Starting inference for: ${prompt.take(50)}")
-            withContext(Dispatchers.IO) {
-                startCompletionJNI(nativePtr, prompt)
+        engineMutex.withLock {
+            if (nativePtr == 0L) {
+                emit("🟡 No local model loaded.\n\n")
+                emit("Go to ⚙️ Settings → 🧠 Local Models → download a model → tap 'Use this model'.")
+                return@withLock
             }
 
-            var tokenCount = 0
-            while (true) {
-                val piece = withContext(Dispatchers.IO) {
-                    completionLoopJNI(nativePtr)
+            try {
+                Log.d(TAG, "Starting inference for: ${prompt.take(50)}")
+                withContext(Dispatchers.IO) {
+                    startCompletionJNI(nativePtr, prompt)
                 }
-                if (piece == "[EOG]") {
-                    Log.d(TAG, "Inference complete. Tokens: $tokenCount")
-                    break
+
+                var tokenCount = 0
+                while (true) {
+                    val piece = withContext(Dispatchers.IO) {
+                        completionLoopJNI(nativePtr)
+                    }
+                    if (piece == "[EOG]") {
+                        Log.d(TAG, "Inference complete. Tokens: $tokenCount")
+                        break
+                    }
+                    if (piece.isNotEmpty()) {
+                        emit(piece)
+                        tokenCount++
+                    }
                 }
-                if (piece.isNotEmpty()) {
-                    emit(piece)
-                    tokenCount++
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Thrown when the flow collection is cancelled (e.g. user pressed Stop)
+                Log.d(TAG, "Inference cancelled by user.")
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Inference error: ${e.message}", e)
+                emit("\n⚠️ Inference error: ${e.message}")
+            } finally {
+                // Use NonCancellable so JNI cleanup runs even if coroutine is cancelled
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    if (nativePtr != 0L) {
+                        try {
+                            stopCompletionJNI(nativePtr)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error stopping completion: ${e.message}", e)
+                        }
+                    }
                 }
             }
-
-            withContext(Dispatchers.IO) {
-                stopCompletionJNI(nativePtr)
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Inference error: ${e.message}", e)
-            emit("\n⚠️ Inference error: ${e.message}")
         }
     }
 
     override fun unload() {
-        if (nativePtr != 0L) {
-            closeModelJNI(nativePtr)
-            nativePtr = 0L
-            loadedModelName = ""
-            Log.i(TAG, "Model unloaded")
+        // Launch a coroutine to acquire the mutex without blocking the main thread
+        kotlinx.coroutines.DelicateCoroutinesApi::class
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            engineMutex.withLock {
+                if (nativePtr != 0L) {
+                    closeModelJNI(nativePtr)
+                    nativePtr = 0L
+                    loadedModelName = ""
+                    Log.i(TAG, "Model unloaded")
+                }
+            }
         }
     }
 
